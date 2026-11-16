@@ -15,7 +15,8 @@ import { shellEnv } from '../engines/shell-env.js';
 import { VoiceSession } from '../voice/session.js';
 import { Player } from '../voice/player.js';
 import { Mic } from '../voice/mic.js';
-import { ElevenLabsTts, SarvamStt, SarvamTts, SonioxStt, SonioxTts } from '../voice/cloud.js';
+import { ElevenLabsTts, SarvamStt, SarvamTts, SonioxStt, SonioxTts, elevenLabsReadsCues, sonioxReadsCues } from '../voice/cloud.js';
+import type { SpeechStyle } from '../brain/prompt-builder.js';
 import { LocalVoiceWorker, LocalWhisper } from '../voice/local/client.js';
 import { SystemTts } from '../voice/system.js';
 import { cacheRoot, ensureWasm } from '../voice/local/runtime.js';
@@ -31,6 +32,12 @@ import { DEFAULT_SETTINGS, CortanaSettingTab, mergeSettings, parseExtraArgs, typ
 
 declare const ORT_WASM_SHA256: string;
 declare const TRANSFORMERS_VERSION: string;
+
+/** Sarvam's Indian languages by code prefix (en-IN needs no script rules). */
+const INDIC_LANGUAGES: Record<string, string> = {
+  hi: 'Hindi', bn: 'Bengali', ta: 'Tamil', te: 'Telugu', kn: 'Kannada', ml: 'Malayalam',
+  mr: 'Marathi', gu: 'Gujarati', pa: 'Punjabi', od: 'Odia', or: 'Odia',
+};
 
 export default class CortanaPlugin extends Plugin {
   settings: CortanaSettings = DEFAULT_SETTINGS;
@@ -147,7 +154,17 @@ export default class CortanaPlugin extends Plugin {
       capture: s.capture,
       graduate: s.graduate,
       graduatePerDay: s.graduatePerDay,
+      speech: this.speechStyle(),
     };
+  }
+
+  /** What the chosen voice can do, for the prompt's speech rules. */
+  private speechStyle(): SpeechStyle | undefined {
+    const s = this.settings;
+    const cues = (s.tts === 'soniox' && sonioxReadsCues(s.sonioxTtsModel))
+      || (s.tts === 'elevenlabs' && elevenLabsReadsCues(s.elevenlabsModel));
+    const indicLanguage = s.tts === 'sarvam' ? INDIC_LANGUAGES[s.sarvamTtsLanguage.trim().slice(0, 2).toLowerCase()] : undefined;
+    return cues || indicLanguage ? { cues, ...(indicLanguage ? { indicLanguage } : {}) } : undefined;
   }
 
   /**
@@ -333,6 +350,7 @@ export default class CortanaPlugin extends Plugin {
     this.warmed = false;
     this.session?.setProviders(this.stt, this.tts);
     this.session?.setOptions(this.voiceOptions());
+    this.agent?.setSpeechStyle(this.speechStyle());
   }
 
   /** Loads local models ahead of the first turn (downloads them the first time). */

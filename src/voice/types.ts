@@ -19,6 +19,8 @@ export interface SpeechToText {
 
 export interface TextToSpeech {
   readonly label: string;
+  /** Reads inline voice cues such as "[warm]" (see speech/cues.ts). */
+  readonly cues?: boolean;
   synthesize(text: string): Promise<SpeechAudio>;
   warmup?(): Promise<void>;
   dispose?(): void;

@@ -10,6 +10,7 @@ import type { SpeechAudio, SpeechToText, TextToSpeech } from './types.js';
 import { EnergyVad, type VadOptions } from './vad.js';
 import { SentenceChunker } from '../speech/chunker.js';
 import { cleanForSpeech, hasSpeakableText } from '../speech/clean.js';
+import { CueStreamFilter, keepAllowedCues, stripCues } from '../speech/cues.js';
 import type { ReplyHandlers, TurnOutcome } from '../agent/agent.js';
 import type { NoteChange } from '../agent/changes.js';
 
@@ -178,7 +179,7 @@ export class VoiceSession {
   /** Shows (and maybe speaks) a message the agent started on its own. */
   async proactive(text: string, source: string, extra: { changes?: NoteChange[]; speak?: boolean } = {}): Promise<void> {
     const handle = this.ui.agentStart('proactive', source);
-    handle.append(text);
+    handle.append(stripCues(text));
     for (const c of extra.changes ?? []) handle.change(c);
     handle.end();
     if (extra.speak !== false && this.opts.speak && this.opts.speakProactive && this.tts) {
@@ -217,8 +218,8 @@ export class VoiceSession {
       say: (raw: string) => {
         const tts = this.tts;
         if (!tts || !this.opts.speak) return;
-        const spoken = cleanForSpeech(raw);
-        if (!hasSpeakableText(spoken)) return;
+        const spoken = cleanForSpeech(tts.cues ? keepAllowedCues(raw) : stripCues(raw));
+        if (!hasSpeakableText(stripCues(spoken))) return;
         // Synthesis runs ahead (one at a time in the provider); playback is ordered.
         const audio = tts.synthesize(spoken);
         audio.catch(() => undefined);
@@ -242,6 +243,7 @@ export class VoiceSession {
     const handle = this.ui.agentStart('reply');
     const speaker = this.makeSpeaker(alive);
     const chunker = new SentenceChunker();
+    const shown = new CueStreamFilter();
     let gotText = false;
     const filler = spoken
       ? window.setTimeout(() => { if (alive() && !gotText) speaker.say(FILLERS[Math.floor(Math.random() * FILLERS.length)]); }, FILLER_AFTER_MS)
@@ -254,7 +256,8 @@ export class VoiceSession {
         onText: (delta) => {
           if (!alive()) return;
           gotText = true;
-          handle.append(delta);
+          const visible = shown.push(delta);
+          if (visible) handle.append(visible);
           for (const piece of chunker.push(delta)) speaker.say(piece);
         },
         onStatus: (s) => { if (alive()) handle.status(s); },
@@ -271,6 +274,8 @@ export class VoiceSession {
         handle.end({ interrupted: true });
         return;
       }
+      const tail = shown.flush();
+      if (tail) handle.append(tail);
       const rest = chunker.flush();
       if (rest) speaker.say(rest);
       if (outcome.error) {

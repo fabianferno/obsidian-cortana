@@ -92,10 +92,17 @@ describe('cloud providers', () => {
   it('Sarvam TTS returns encoded audio, and errors carry the status', async () => {
     const ok = fakeHttp(() => ({ status: 200, text: JSON.stringify({ audios: [Buffer.from('RIFFxx').toString('base64')] }) }));
     const audio = await new SarvamTts(ok.http, 'K', { model: 'bulbul:v3', language: 'en-IN' }).synthesize('Hi');
+    expect(JSON.parse(ok.calls[0].body as string)).not.toHaveProperty('enable_preprocessing');
     expect(audio.kind).toBe('encoded');
     expect(JSON.parse(ok.calls[0].body as string)).toMatchObject({ text: 'Hi', model: 'bulbul:v3', target_language_code: 'en-IN' });
     const bad = fakeHttp(() => ({ status: 403, text: 'invalid key' }));
     await expect(new SarvamTts(bad.http, 'K', { model: 'bulbul:v3', language: 'en-IN' }).synthesize('Hi')).rejects.toThrow(/403.*invalid key/);
+  });
+
+  it('Sarvam v4-flash asks for number and date preprocessing', async () => {
+    const ok = fakeHttp(() => ({ status: 200, text: JSON.stringify({ audios: [Buffer.from('RIFFxx').toString('base64')] }) }));
+    await new SarvamTts(ok.http, 'K', { model: 'bulbul:v4-flash', language: 'hi-IN' }).synthesize('Hi');
+    expect(JSON.parse(ok.calls[0].body as string)).toMatchObject({ enable_preprocessing: true });
   });
 
   it('Soniox TTS sends a bearer key', async () => {
@@ -141,7 +148,7 @@ describe('ensureWasm', () => {
 });
 
 describe('VoiceSession', () => {
-  function setup(opts: { reply?: string; bargeIn?: boolean; heard?: string } = {}) {
+  function setup(opts: { reply?: string; bargeIn?: boolean; heard?: string; cues?: boolean } = {}) {
     const said: string[] = [];
     const states: VoiceState[] = [];
     const log: string[] = [];
@@ -156,7 +163,7 @@ describe('VoiceSession', () => {
       interrupt: vi.fn(),
     };
     const stt: SpeechToText = { label: 's', transcribe: vi.fn(async () => opts.heard ?? 'hello agent') };
-    const tts: TextToSpeech = { label: 't', synthesize: vi.fn(async (text: string): Promise<SpeechAudio> => { said.push(text); return { kind: 'pcm', samples: new Float32Array(1), sampleRate: 24000 }; }) };
+    const tts: TextToSpeech = { label: 't', cues: opts.cues, synthesize: vi.fn(async (text: string): Promise<SpeechAudio> => { said.push(text); return { kind: 'pcm', samples: new Float32Array(1), sampleRate: 24000 }; }) };
     const player: PlayerLike = {
       playing: false,
       enqueue: vi.fn(async () => undefined),
@@ -221,6 +228,22 @@ describe('VoiceSession', () => {
     barge.session.setListening(true);
     for (let i = 0; i < 30; i++) barge.session.onFrame(frame(0.3));
     expect(barge.player.stop).toHaveBeenCalled();
+  });
+
+  it('never shows cues, and speaks them only to a voice that reads them', async () => {
+    const reply = '[warm] Morning, Chief, the plan is ready. [mysteriously] [stern] Start the report now.';
+    const plain = setup({ reply });
+    await plain.session.sendText('hi');
+    expect(plain.log.at(-1)).toBe('reply: Morning, Chief, the plan is ready. Start the report now.');
+    expect(plain.said).toEqual(['Morning, Chief, the plan is ready.', 'Start the report now.']);
+
+    const expressive = setup({ reply, cues: true });
+    await expressive.session.sendText('hi');
+    expect(expressive.log.at(-1)).toBe('reply: Morning, Chief, the plan is ready. Start the report now.');
+    expect(expressive.said).toEqual(['[warm] Morning, Chief, the plan is ready.', '[stern] Start the report now.']);
+
+    await expressive.session.proactive('[calm] Time to wind down.', 'checkpoint:evening');
+    expect(expressive.log.at(-1)).toBe('proactive: Time to wind down.');
   });
 
   it('shows an engine error and says so', async () => {

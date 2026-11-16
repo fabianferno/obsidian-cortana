@@ -157,7 +157,7 @@ export class CortanaSettingTab extends PluginSettingTab {
           this.display();
         }));
       this.voicePicker(containerEl, 'ElevenLabs voice', 'The voices in your ElevenLabs library, loaded with your key.', 'elevenlabsVoice', () => this.plugin.listVoices('elevenlabs'));
-      this.text(containerEl, 'ElevenLabs model', 'eleven_flash_v2_5 is the fastest. eleven_multilingual_v2 sounds richer but is slower.', 'elevenlabsModel');
+      this.text(containerEl, 'ElevenLabs model', 'eleven_flash_v2_5 is the fastest. eleven_multilingual_v2 sounds richer but is slower. eleven_v3 is the most expressive, and Cortana adds voice cues such as [warm] for it.', 'elevenlabsModel');
     }
     if (s.tts !== 'off') {
       new Setting(containerEl)
@@ -198,7 +198,7 @@ export class CortanaSettingTab extends PluginSettingTab {
         } else {
           this.text(containerEl, 'Sarvam speaker', 'A speaker ID from the voices page at docs.sarvam.ai, such as shubh_enhi_ads. Leave empty for the default.', 'sarvamTtsSpeaker');
         }
-        this.text(containerEl, 'Sarvam speech language', 'For example en-IN or hi-IN.', 'sarvamTtsLanguage');
+        this.text(containerEl, 'Sarvam speech language', 'For example en-IN or hi-IN. With an Indian language, Cortana writes it in its own script, as Sarvam recommends.', 'sarvamTtsLanguage');
       }
     }
     if (usesSoniox) {

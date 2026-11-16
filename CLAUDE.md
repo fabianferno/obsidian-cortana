@@ -66,7 +66,9 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   ElevenLabs), `system.ts` (OS voice via speechSynthesis; the player speaks it in the same
   ordered, stoppable queue), `local/` (Whisper in a Web Worker; worker bundled separately and inlined as text;
   the ONNX WASM binary is downloaded once from jsDelivr and checked against a SHA-256 baked in
-  at build time).
+  at build time). `../speech/cues.ts` - inline voice cues ("[warm]"): the prompt lists them only
+  when the TTS sets `cues` (Soniox v2, ElevenLabs eleven_v3); the panel never shows them and other
+  voices get them stripped.
 - `src/checkins/scheduler.ts` - daily checkpoints at local HH:MM, missed-checkpoint catch-up,
   adaptive pulse.
 - `src/store/store.ts` - small JSON state, persisted by the plugin.

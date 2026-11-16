@@ -184,17 +184,24 @@ export class CortanaView extends ItemView {
 
   private fill(el: HTMLElement, e: Entry): void {
     el.className = `cortana-msg cortana-${e.role}${e.source ? ' cortana-proactive' : ''}${e.done ? '' : ' is-live'}`;
-    // Keep the text element across updates so streamed words animate in only once.
-    const textEl = el.querySelector<HTMLElement>(':scope > .cortana-text');
-    textEl?.detach();
-    el.empty();
+    // The text element stays in the DOM across updates. Detaching and re-adding
+    // it would restart every word's fade-in, so the reply would flicker.
+    let textEl = el.querySelector<HTMLElement>(':scope > .cortana-text');
+    for (const child of Array.from(el.children)) if (child !== textEl) child.remove();
     const label = describeSource(e.source);
-    if (label) el.createDiv({ cls: 'cortana-label', text: label });
+    if (label) el.prepend(createDiv({ cls: 'cortana-label', text: label }));
     if (e.text) {
-      const target = textEl ?? createDiv('cortana-text');
-      el.appendChild(target);
-      if (e.role === 'agent') this.streamText(target, e.text);
-      else target.setText(e.text);
+      if (!textEl) {
+        textEl = el.createDiv('cortana-text');
+        // A word that has finished fading in drops its animation, so nothing can replay it.
+        textEl.addEventListener('animationend', (ev) => {
+          (ev.target as Element | null)?.classList.remove('cortana-stream-w');
+        });
+      }
+      if (e.role === 'agent') this.streamText(textEl, e.text);
+      else textEl.setText(e.text);
+    } else {
+      textEl?.remove();
     }
     if (!e.done && !e.text) setShimmer(el.createDiv('cortana-typing'), e.status ?? 'Thinking...', true);
     else if (!e.done && e.status) setShimmer(el.createDiv('cortana-status'), e.status, true);
@@ -209,7 +216,8 @@ export class CortanaView extends ItemView {
    * The backlog is capped so a fast stream never lags far behind.
    */
   private streamText(el: HTMLElement, text: string): void {
-    const tokens = text.split(/(\s+)/).filter(t => t !== '');
+    // Trimmed, so the trailing space a chunk ends on (and the final trim) is not a rewrite.
+    const tokens = text.trim().split(/(\s+)/).filter(t => t !== '');
     const prev = this.streamed.get(el) ?? { tokens: [], nextAt: 0 };
     const extends_ = prev.tokens.length <= tokens.length
       && prev.tokens.every((t, i) => i === prev.tokens.length - 1 ? tokens[i].startsWith(t) : t === tokens[i]);

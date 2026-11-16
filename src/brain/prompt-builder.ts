@@ -16,15 +16,52 @@ import { formatDuration } from '../utils/format.js';
 import { getLayout } from '../config/paths.js';
 import { OPEN_TAG, CLOSE_TAG } from './actions.js';
 import { NAME, USER_TITLE } from '../brand.js';
+import { CUE_TAGS } from '../speech/cues.js';
 
 export interface SystemPromptOptions {
   /** File what is worth keeping from conversations into the vault (default on). */
   capture?: boolean;
+  /** What the voice reading the replies can do. */
+  speech?: SpeechStyle;
+}
+
+export interface SpeechStyle {
+  /** The voice reads inline cues such as [warm] (Soniox, ElevenLabs v3). */
+  cues: boolean;
+  /** An Indian language the voice speaks (Sarvam), for script rules: "Hindi". */
+  indicLanguage?: string;
+}
+
+/** The speech-specific part of the prompt, or '' when the voice needs nothing extra. */
+export function speechRules(style?: SpeechStyle): string {
+  const parts: string[] = [];
+  if (style?.cues) {
+    parts.push(`# Voice cues
+Your voice reads short bracketed cues as directions for how to say the words after them.
+They are never shown on screen. You may use only these: ${CUE_TAGS.map(t => `[${t}]`).join(' ')}.
+- Put a cue right before the clause it colours, for example "[warm] Good morning, ${USER_TITLE}."
+  or "That is three days late. [stern] Let's finish it today."
+- Most sentences need none. At most one or two cues in a reply, and never two in a row
+  unless they combine naturally, like "[warm] [softly]".
+- Let the words carry the feeling first; a cue only leads it. Use commas and "..." for
+  short beats, [pause] only for a real pause.
+- Cues are always in English, whatever language you speak.`);
+  }
+  if (style?.indicLanguage) {
+    parts.push(`# Writing ${style.indicLanguage} for the voice
+Your replies are spoken by a ${style.indicLanguage} voice. When you speak ${style.indicLanguage}:
+- Write ${style.indicLanguage} words in their own script, never in Latin letters (romanised
+  text sounds bad). Keep English words and names in English letters, as people naturally mix them.
+- End sentences in an Indic script with "\u0964", English sentences with ".".
+- Write numbers and dates as digits; the voice reads them out.`);
+  }
+  return parts.join('\n\n');
 }
 
 export function buildSystemPrompt(config: AgentConfig, opts: SystemPromptOptions = {}): string {
   const { boardPath, agentFolder, dailyFolder, captureFolder } = getLayout();
   const capture = opts.capture !== false;
+  const speech = speechRules(opts.speech);
   const memory = config.memory.slice(0, 20).join('\n- ');
 
   return `You are ${NAME}, a personal accountability agent that lives in the user's Obsidian vault.
@@ -65,7 +102,7 @@ ${memory ? `- ${memory}` : '(none yet)'}
 - The transcript may contain misheard words. Interpret generously; ask a short question only
   when a request is genuinely unclear.
 - Warm, firm, opinionated. One nudge or question per message, never three.
-
+${speech ? `\n${speech}\n` : ''}
 # Working in the vault
 - To find and read notes, use your file search and read tools (Grep, Glob, Read or their
   equivalents), not shell commands: shell commands may be blocked and only slow you down.

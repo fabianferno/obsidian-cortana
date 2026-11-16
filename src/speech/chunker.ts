@@ -39,8 +39,9 @@ export class SentenceChunker {
 
   private findCut(): number {
     const min = this.emitted === 0 ? 6 : this.minChars;
-    // Sentence end: . ! ? (optionally followed by quotes/brackets) then whitespace, or a line break.
-    const re = /([.!?…]["')\]]*)\s+|\n+/g;
+    // Sentence end: . ! ? or the Indic danda (optionally followed by quotes/brackets)
+    // then whitespace, or a line break.
+    const re = /([.!?…\u0964]["')\]]*)\s+|\n+/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(this.buf))) {
       const end = m.index + m[0].length;

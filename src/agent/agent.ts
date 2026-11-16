@@ -20,7 +20,7 @@ import { ensureAgentFiles } from '../config/templates.js';
 import { assembleContext } from '../context/provider.js';
 import { toIanaZone } from '../context/datetime.js';
 import { detectSignals } from '../brain/signals.js';
-import { buildSystemPrompt, buildTurn } from '../brain/prompt-builder.js';
+import { buildSystemPrompt, buildTurn, type SpeechStyle } from '../brain/prompt-builder.js';
 import { ActionStreamFilter, describeActions, parseAgentReply } from '../brain/actions.js';
 import { executeVaultActions, getPendingConfigEdit } from './execute-actions.js';
 import {
@@ -53,6 +53,8 @@ export interface AgentSettings {
   graduate: boolean;
   /** Notes handled per daily pass. */
   graduatePerDay: number;
+  /** What the voice can do (cues, script). Changing it starts a fresh conversation. */
+  speech?: SpeechStyle;
 }
 
 export interface AgentMessage {
@@ -171,11 +173,19 @@ export class Agent {
     this.engine = undefined;
   }
 
+  /** A new voice: the prompt's speech rules follow it from the next turn. */
+  setSpeechStyle(speech: SpeechStyle | undefined): void {
+    if (JSON.stringify(speech ?? null) === JSON.stringify(this.settings.speech ?? null)) return;
+    this.settings = { ...this.settings, speech };
+    this.personaKey = '';
+  }
+
   /** Apply new settings. Checkpoint timers are re-armed. */
   updateSettings(next: AgentSettings): void {
-    const captureChanged = next.capture !== this.settings.capture;
+    const promptChanged = next.capture !== this.settings.capture
+      || JSON.stringify(next.speech ?? null) !== JSON.stringify(this.settings.speech ?? null);
     this.settings = next;
-    if (captureChanged) this.personaKey = '';
+    if (promptChanged) this.personaKey = '';
     if (this.running) {
       this.stopCheckpoints?.();
       this.stopCheckpoints = startCheckpoints(next.checkpointTimes, (kind) => this.runCheckpoint(kind));
@@ -374,11 +384,11 @@ export class Agent {
 
   private ensureEngine(): EngineSession {
     const c = this.config;
-    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, String(this.settings.capture)].join('\0')).digest('hex');
+    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, String(this.settings.capture), JSON.stringify(this.settings.speech ?? null)].join('\0')).digest('hex');
     if (!this.engine || key !== this.personaKey) {
       // Personality changed (or first turn): start a conversation with the new prompt.
       this.engine?.close();
-      this.engine = this.makeEngine(buildSystemPrompt(c, { capture: this.settings.capture }));
+      this.engine = this.makeEngine(buildSystemPrompt(c, { capture: this.settings.capture, speech: this.settings.speech }));
       this.personaKey = key;
     }
     return this.engine;

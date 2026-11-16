@@ -21,6 +21,11 @@ describe('SentenceChunker', () => {
     expect(c.push('Version 3.5 is out, e.g. today. ')).toEqual(['Version 3.5 is out, e.g. today.']);
   });
 
+  it('splits Hindi at the danda', () => {
+    const c = new SentenceChunker(1);
+    expect(c.push('\u0906\u092a\u0915\u093e order confirm \u0939\u094b \u0917\u092f\u093e\u0964 Next ')).toEqual(['\u0906\u092a\u0915\u093e order confirm \u0939\u094b \u0917\u092f\u093e\u0964']);
+  });
+
   it('breaks very long runs at a comma', () => {
     const c = new SentenceChunker(10, 60);
     const out = c.push('one two three four five six seven, eight nine ten eleven twelve thirteen fourteen');

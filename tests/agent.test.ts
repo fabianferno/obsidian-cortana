@@ -176,6 +176,18 @@ describe('Agent', () => {
     expect(board.indexOf('Write intro')).toBeGreaterThan(board.indexOf('## Doing'));
   });
 
+  it('starts a fresh conversation with cue rules when the voice changes', async () => {
+    await agent.handleUserMessage('hi');
+    expect(engines.at(-1)!.systemPrompt).not.toContain('# Voice cues');
+    agent.setSpeechStyle({ cues: true });
+    await agent.handleUserMessage('hi again');
+    expect(engines).toHaveLength(2);
+    expect(engines[1].systemPrompt).toContain('# Voice cues');
+    agent.setSpeechStyle({ cues: true });
+    await agent.handleUserMessage('and again');
+    expect(engines).toHaveLength(2);
+  });
+
   it('sends the live context and the user words, and the persona once', async () => {
     await agent.handleUserMessage('what now?', { spoken: true });
     const [engine] = engines;

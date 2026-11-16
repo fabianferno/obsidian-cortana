@@ -41,6 +41,8 @@ export class SarvamTts implements TextToSpeech {
     };
     if (this.opts.speaker) body.speaker = this.opts.speaker;
     if (this.opts.pace) body.pace = this.opts.pace;
+    // Reads numbers and dates out properly. Recommended for v4-flash; v3's docs do not list it.
+    if (this.opts.model.trim() !== 'bulbul:v3') body.enable_preprocessing = true;
     const res = await this.http({
       url: 'https://api.sarvam.ai/text-to-speech', method: 'POST',
       headers: { 'api-subscription-key': this.apiKey }, body: JSON.stringify(body), contentType: 'application/json',
@@ -52,11 +54,23 @@ export class SarvamTts implements TextToSpeech {
   }
 }
 
+/** Audio tags arrived with tts-rt-v2; v1 would read them aloud. */
+export function sonioxReadsCues(model: string): boolean {
+  return model.trim() !== 'tts-rt-v1';
+}
+
+/** Only eleven_v3 takes audio tags; the other models would read them aloud. */
+export function elevenLabsReadsCues(model: string): boolean {
+  return model.trim().startsWith('eleven_v3');
+}
+
 /** Soniox text-to-speech (REST). */
 export class SonioxTts implements TextToSpeech {
   readonly label: string;
+  readonly cues: boolean;
   constructor(private http: Http, private apiKey: string, private opts: { model: string; voice: string; language: string }) {
     this.label = `Soniox (${opts.voice})`;
+    this.cues = sonioxReadsCues(opts.model);
   }
 
   async synthesize(text: string): Promise<SpeechAudio> {
@@ -74,8 +88,10 @@ export class SonioxTts implements TextToSpeech {
 /** ElevenLabs text-to-speech (REST). The most natural voices; MP3 back. */
 export class ElevenLabsTts implements TextToSpeech {
   readonly label: string;
+  readonly cues: boolean;
   constructor(private http: Http, private apiKey: string, private opts: { voice: string; model: string }) {
     this.label = `ElevenLabs (${opts.model})`;
+    this.cues = elevenLabsReadsCues(opts.model);
   }
 
   async synthesize(text: string): Promise<SpeechAudio> {
