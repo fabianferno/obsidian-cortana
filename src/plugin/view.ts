@@ -13,6 +13,17 @@ const CHANGE_ICONS: Record<NoteChange['kind'], string> = {
 
 export const VIEW_TYPE = 'cortana-panel';
 
+/** Streaming text: a new word every STREAM_GAP ms, never more than STREAM_MAX_LAG behind. */
+const STREAM_GAP = 60;
+const STREAM_MAX_LAG = 900;
+
+/** Sets text that shimmers while `active` (the ::before layer reads data-text). */
+function setShimmer(el: HTMLElement, text: string, active: boolean): void {
+  el.setText(text);
+  el.dataset.text = text;
+  el.toggleClass('cortana-shimmer', active);
+}
+
 const STATE_LABEL: Record<VoiceState, string> = {
   idle: 'Ready',
   listening: 'Listening',
@@ -34,6 +45,10 @@ export class CortanaView extends ItemView {
   private input!: HTMLTextAreaElement;
   private noticeEl!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
+  /** Words already shown per reply, so only new words stream in. */
+  private streamed = new WeakMap<HTMLElement, { tokens: string[]; nextAt: number }>();
+  /** False during the first render, so history appears at once instead of streaming. */
+  private live = false;
   private unsubscribe?: () => void;
 
   constructor(leaf: WorkspaceLeaf, private readonly plugin: CortanaPlugin) {
@@ -68,13 +83,15 @@ export class CortanaView extends ItemView {
     this.noticeEl = root.createDiv('cortana-notice');
     this.listEl = root.createDiv('cortana-list');
 
+    // One rounded composer: the text box with the stop and mic buttons inside it.
     const footer = root.createDiv('cortana-footer');
-    this.micBtn = footer.createEl('button', { cls: 'cortana-mic', attr: { 'aria-label': 'Talk (toggle listening)' } });
-    this.micBtn.onclick = () => void this.plugin.toggleListening();
-    this.stopBtn = footer.createEl('button', { cls: 'clickable-icon cortana-icon-btn cortana-stop', attr: { 'aria-label': 'Stop' } });
+    const composer = footer.createDiv('cortana-composer');
+    this.input = composer.createEl('textarea', { cls: 'cortana-input', attr: { rows: '1', placeholder: `Message ${NAME}` } });
+    this.stopBtn = composer.createEl('button', { cls: 'cortana-composer-btn cortana-stop', attr: { 'aria-label': 'Stop' } });
     setIcon(this.stopBtn, 'square');
     this.stopBtn.onclick = () => this.plugin.interrupt();
-    this.input = footer.createEl('textarea', { cls: 'cortana-input', attr: { rows: '1', placeholder: 'Type, or press the mic and talk' } });
+    this.micBtn = composer.createEl('button', { cls: 'cortana-composer-btn cortana-mic', attr: { 'aria-label': 'Talk (toggle listening)' } });
+    this.micBtn.onclick = () => void this.plugin.toggleListening();
     this.input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
         e.preventDefault();
@@ -86,6 +103,7 @@ export class CortanaView extends ItemView {
 
     this.unsubscribe = this.plugin.transcript.subscribe((changed) => this.render(changed));
     this.render();
+    this.live = true;
     if (this.plugin.settings.listenOnOpen && !this.plugin.isListening) void this.plugin.toggleListening();
   }
 
@@ -103,7 +121,7 @@ export class CortanaView extends ItemView {
   private render(changed?: Entry): void {
     const t = this.plugin.transcript;
     const state = t.voiceState;
-    this.stateEl.setText(STATE_LABEL[state]);
+    setShimmer(this.stateEl, STATE_LABEL[state], state !== 'idle');
     this.stateEl.dataset.state = state;
     const listening = this.plugin.isListening;
     this.micBtn.empty();
@@ -166,15 +184,63 @@ export class CortanaView extends ItemView {
 
   private fill(el: HTMLElement, e: Entry): void {
     el.className = `cortana-msg cortana-${e.role}${e.source ? ' cortana-proactive' : ''}${e.done ? '' : ' is-live'}`;
+    // Keep the text element across updates so streamed words animate in only once.
+    const textEl = el.querySelector<HTMLElement>(':scope > .cortana-text');
+    textEl?.detach();
     el.empty();
     const label = describeSource(e.source);
     if (label) el.createDiv({ cls: 'cortana-label', text: label });
-    if (e.text) el.createDiv({ cls: 'cortana-text', text: e.text });
-    if (!e.done && !e.text) el.createDiv({ cls: 'cortana-typing', text: e.status ?? 'Thinking...' });
-    else if (!e.done && e.status) el.createDiv({ cls: 'cortana-status', text: e.status });
+    if (e.text) {
+      const target = textEl ?? createDiv('cortana-text');
+      el.appendChild(target);
+      if (e.role === 'agent') this.streamText(target, e.text);
+      else target.setText(e.text);
+    }
+    if (!e.done && !e.text) setShimmer(el.createDiv('cortana-typing'), e.status ?? 'Thinking...', true);
+    else if (!e.done && e.status) setShimmer(el.createDiv('cortana-status'), e.status, true);
     if (e.changes?.length) this.renderChanges(el, e.changes);
     if (e.error) el.createDiv({ cls: 'cortana-error-text', text: e.error });
     if (e.interrupted) el.createDiv({ cls: 'cortana-status', text: 'Stopped' });
+  }
+
+  /**
+   * Shows a reply's text, letting only the words that are new since the last
+   * update resolve in (opacity plus a soft blur), one every STREAM_GAP ms.
+   * The backlog is capped so a fast stream never lags far behind.
+   */
+  private streamText(el: HTMLElement, text: string): void {
+    const tokens = text.split(/(\s+)/).filter(t => t !== '');
+    const prev = this.streamed.get(el) ?? { tokens: [], nextAt: 0 };
+    const extends_ = prev.tokens.length <= tokens.length
+      && prev.tokens.every((t, i) => i === prev.tokens.length - 1 ? tokens[i].startsWith(t) : t === tokens[i]);
+    if (!this.live || !extends_) {
+      // History, or text that was rewritten rather than extended: show it as is.
+      el.empty();
+      for (const t of tokens) this.appendToken(el, t, null);
+      this.streamed.set(el, { tokens, nextAt: 0 });
+      return;
+    }
+    // The last word may have grown since the last chunk (it was cut mid-word).
+    const kids = el.childNodes;
+    if (prev.tokens.length > 0 && kids.length > 0) kids[kids.length - 1].textContent = tokens[prev.tokens.length - 1];
+    const now = performance.now();
+    let at = Math.max(now, prev.nextAt);
+    for (const t of tokens.slice(prev.tokens.length)) {
+      const delay = Math.min(at - now, STREAM_MAX_LAG);
+      this.appendToken(el, t, /\s/.test(t) ? null : delay);
+      if (!/\s/.test(t)) at = now + delay + STREAM_GAP;
+    }
+    this.streamed.set(el, { tokens, nextAt: at });
+  }
+
+  /** A word as an animated span (delay in ms), or plain text (whitespace, history). */
+  private appendToken(el: HTMLElement, token: string, delay: number | null): void {
+    if (delay === null) {
+      el.appendText(token);
+      return;
+    }
+    const w = el.createSpan({ cls: 'cortana-stream-w', text: token });
+    w.setCssProps({ '--cortana-word-delay': `${Math.round(delay)}ms` });
   }
 
   /** One chip per note or file the turn touched; click to open it. */

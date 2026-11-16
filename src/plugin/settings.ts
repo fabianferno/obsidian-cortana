@@ -1,6 +1,7 @@
 // plugin/settings.ts - everything the user can set, and the settings tab.
 
 import { App, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
+import { sarvamVoices, type VoiceOption } from '../voice/voices.js';
 import type CortanaPlugin from './main.js';
 import { ENGINES, ENGINE_INFO, type EngineName } from '../engines/index.js';
 import { DEFAULT_LAYOUT, type VaultLayout } from '../config/paths.js';
@@ -149,12 +150,13 @@ export class CortanaSettingTab extends PluginSettingTab {
     if (s.tts === 'elevenlabs') {
       new Setting(containerEl)
         .setName('ElevenLabs API key')
-        .setDesc('Stored in Obsidian\'s secret storage, not in the plugin settings file.')
+        .setDesc('Click Link, enter a short name such as "elevenlabs" as the ID, and paste your ElevenLabs API key (elevenlabs.io, Developers, API keys) as the secret. The key stays in Obsidian\'s secret storage, not in the plugin settings file.')
         .addComponent(el => new SecretComponent(this.app, el).setValue(s.elevenlabsSecret).onChange(async v => {
           s.elevenlabsSecret = v ?? '';
           await save({ voice: true });
+          this.display();
         }));
-      this.text(containerEl, 'ElevenLabs voice ID', 'From the voice library (Voices, then the ID button). The default is a premade voice that works on the free plan.', 'elevenlabsVoice');
+      this.voicePicker(containerEl, 'ElevenLabs voice', 'The voices in your ElevenLabs library, loaded with your key.', 'elevenlabsVoice', () => this.plugin.listVoices('elevenlabs'));
       this.text(containerEl, 'ElevenLabs model', 'eleven_flash_v2_5 is the fastest. eleven_multilingual_v2 sounds richer but is slower.', 'elevenlabsModel');
     }
     if (s.tts !== 'off') {
@@ -169,30 +171,49 @@ export class CortanaSettingTab extends PluginSettingTab {
     if (usesSarvam) {
       new Setting(containerEl)
         .setName('Sarvam API key')
-        .setDesc('Stored in Obsidian\'s secret storage, not in the plugin settings file.')
+        .setDesc('Click Link, enter a short name such as "sarvam" as the ID, and paste your Sarvam API key (dashboard.sarvam.ai, API keys) as the secret. The key stays in Obsidian\'s secret storage, not in the plugin settings file.')
         .addComponent(el => new SecretComponent(this.app, el).setValue(s.sarvamSecret).onChange(async v => {
           s.sarvamSecret = v ?? '';
           await save({ voice: true });
+          this.display();
         }));
       if (s.stt === 'sarvam') this.text(containerEl, 'Sarvam recognition language', 'Language code, or "unknown" to detect.', 'sarvamSttLanguage');
       if (s.tts === 'sarvam') {
-        this.text(containerEl, 'Sarvam voice model', '', 'sarvamTtsModel');
-        this.text(containerEl, 'Sarvam speaker', 'Optional speaker name.', 'sarvamTtsSpeaker');
+        new Setting(containerEl)
+          .setName('Sarvam voice model')
+          .setDesc('bulbul:v3 has 37 speakers. bulbul:v4-flash has 200+ persona voices.')
+          .addDropdown(d => {
+            for (const m of ['bulbul:v3', 'bulbul:v4-flash', 'bulbul:v2']) d.addOption(m, m);
+            if (!d.selectEl.querySelector(`option[value="${CSS.escape(s.sarvamTtsModel)}"]`)) d.addOption(s.sarvamTtsModel, s.sarvamTtsModel);
+            d.setValue(s.sarvamTtsModel).onChange(async v => {
+              s.sarvamTtsModel = v;
+              s.sarvamTtsSpeaker = '';
+              await save({ voice: true });
+              this.display();
+            });
+          });
+        const speakers = sarvamVoices(s.sarvamTtsModel);
+        if (speakers.length) {
+          this.voicePicker(containerEl, 'Sarvam speaker', 'Sarvam\'s speakers for this model.', 'sarvamTtsSpeaker', () => Promise.resolve(speakers), 'Default for the model');
+        } else {
+          this.text(containerEl, 'Sarvam speaker', 'A speaker ID from the voices page at docs.sarvam.ai, such as shubh_enhi_ads. Leave empty for the default.', 'sarvamTtsSpeaker');
+        }
         this.text(containerEl, 'Sarvam speech language', 'For example en-IN or hi-IN.', 'sarvamTtsLanguage');
       }
     }
     if (usesSoniox) {
       new Setting(containerEl)
         .setName('Soniox API key')
-        .setDesc('Stored in Obsidian\'s secret storage, not in the plugin settings file.')
+        .setDesc('Click Link, enter a short name such as "soniox" as the ID, and paste your Soniox API key (console.soniox.com, API keys) as the secret. The key stays in Obsidian\'s secret storage, not in the plugin settings file.')
         .addComponent(el => new SecretComponent(this.app, el).setValue(s.sonioxSecret).onChange(async v => {
           s.sonioxSecret = v ?? '';
           await save({ voice: true });
+          this.display();
         }));
       if (s.stt === 'soniox') this.text(containerEl, 'Soniox recognition model', '', 'sonioxSttModel');
       if (s.tts === 'soniox') {
-        this.text(containerEl, 'Soniox voice model', '', 'sonioxTtsModel');
-        this.text(containerEl, 'Soniox voice', '', 'sonioxTtsVoice');
+        this.text(containerEl, 'Soniox voice model', 'For example tts-rt-v2. Reopen settings after changing it to reload the voices.', 'sonioxTtsModel');
+        this.voicePicker(containerEl, 'Soniox voice', 'Soniox\'s voices for this model, loaded with your key.', 'sonioxTtsVoice', () => this.plugin.listVoices('soniox'));
       }
       this.text(containerEl, 'Soniox language', '', 'sonioxLanguage');
     }
@@ -244,6 +265,41 @@ export class CortanaSettingTab extends PluginSettingTab {
     layoutText('Capture folder', 'Quick capture. New notes start here; the daily pass moves them to the notes folder when they are ready. Empty turns the pass off.', 'captureFolder');
     layoutText('Notes folder', 'Where finished notes go.', 'notesFolder');
     layoutText('Daily notes folder', 'The agent never reads or writes here.', 'dailyFolder');
+  }
+
+  /**
+   * A dropdown of voices that loads in the background. The saved voice stays
+   * selectable even if the list does not include it. If loading fails (no key,
+   * rejected key, offline), the reason shows and a text field takes over so a
+   * voice ID can still be typed.
+   */
+  private voicePicker(el: HTMLElement, name: string, desc: string, key: StringSettingKey, load: () => Promise<VoiceOption[]>, emptyLabel?: string): void {
+    const settings = this.plugin.settings as unknown as Record<string, string>;
+    const current = settings[key];
+    const setting = new Setting(el).setName(name).setDesc('Loading voices...');
+    setting.addDropdown(d => {
+      if (emptyLabel) d.addOption('', emptyLabel);
+      if (current) d.addOption(current, current);
+      d.setValue(current).onChange(async v => {
+        settings[key] = v;
+        await this.plugin.saveSettings({ voice: true });
+      });
+      load().then(voices => {
+        d.selectEl.empty();
+        if (emptyLabel) d.addOption('', emptyLabel);
+        if (current && !voices.some(v => v.id === current)) d.addOption(current, `${current} (not in the list)`);
+        for (const v of voices) d.addOption(v.id, v.label);
+        d.setValue(current);
+        setting.setDesc(voices.length ? `${desc} ${voices.length} available.` : `${desc} None found.`);
+      }, (err: unknown) => {
+        setting.setDesc(`Could not load voices: ${(err as Error).message}. Type a voice ID instead.`);
+        setting.controlEl.empty();
+        setting.addText(t => t.setPlaceholder('Voice ID').setValue(current).onChange(async v => {
+          settings[key] = v.trim();
+          await this.plugin.saveSettings({ voice: true });
+        }));
+      });
+    });
   }
 
   private text(el: HTMLElement, name: string, desc: string, key: StringSettingKey): void {

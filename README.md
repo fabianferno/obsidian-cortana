@@ -189,7 +189,8 @@ services, and only for these reasons:
 | `cdn.jsdelivr.net` | First use of local speech recognition | Nothing about you. Downloads the ONNX runtime for transformers.js 3.8.1 (21 MB), checked against a SHA-256 fixed in the plugin, then cached. |
 | `api.sarvam.ai` | Only if you choose Sarvam | Your speech audio (to transcribe) or the agent's reply text (to speak), with your Sarvam key. |
 | `stt-rt.soniox.com`, `tts-rt.soniox.com` | Only if you choose Soniox | Your speech audio or the agent's reply text, with your Soniox key. |
-| `api.elevenlabs.io` | Only if you choose ElevenLabs | The agent's reply text, with your ElevenLabs key. |
+| `api.soniox.com` | When the Soniox voice setting is shown | Your Soniox key and the voice model name, to list the voices you can pick. |
+| `api.elevenlabs.io` | Only if you choose ElevenLabs | The agent's reply text, with your ElevenLabs key. When the ElevenLabs voice setting is shown, your key, to list the voices in your library. |
 | `api.open-meteo.com` | Check-ins, if weather is on and `user.md` has coordinates | The coordinates from `user.md`. Turn weather off in settings. |
 
 With local speech recognition and the system voice, audio never leaves your computer.

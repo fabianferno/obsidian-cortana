@@ -23,6 +23,7 @@ import { NAME, USER_TITLE } from '../brand.js';
 import { removeOldKokoroModels } from '../voice/local/cleanup.js';
 import { createLogger } from '../utils/logger.js';
 import type { Http } from '../voice/http.js';
+import { elevenLabsVoices, sonioxVoices, type VoiceOption } from '../voice/voices.js';
 import type { SpeechToText, TextToSpeech } from '../voice/types.js';
 import { Transcript } from './transcript.js';
 import { VIEW_TYPE, CortanaView } from './view.js';
@@ -247,6 +248,13 @@ export default class CortanaPlugin extends Plugin {
     const res = await requestUrl({ url: req.url, method: req.method, headers: req.headers, body: req.body, contentType: req.contentType, throw: false });
     return { status: res.status, text: res.text, arrayBuffer: res.arrayBuffer };
   };
+
+  /** The voices the user's key can use, for the settings picker. Throws with a readable reason. */
+  async listVoices(provider: 'elevenlabs' | 'soniox'): Promise<VoiceOption[]> {
+    const s = this.settings;
+    if (provider === 'elevenlabs') return elevenLabsVoices(this.http, this.secret(s.elevenlabsSecret, 'ElevenLabs'));
+    return sonioxVoices(this.http, this.secret(s.sonioxSecret, 'Soniox'), s.sonioxTtsModel);
+  }
 
   private secret(name: string, label: string): string {
     const value = name ? this.app.secretStorage.getSecret(name) : null;
