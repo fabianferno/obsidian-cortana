@@ -1,13 +1,13 @@
 // plugin/main.ts - the Obsidian plugin: wires the agent, the engine, voice and the panel.
 
-import { FileSystemAdapter, Notice, Platform, Plugin, TFile, requestUrl } from 'obsidian';
+import { FileSystemAdapter, Notice, Platform, Plugin, TFile, normalizePath, requestUrl } from 'obsidian';
 import { createHash } from 'crypto';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs';
 import path from 'path';
 import WORKER_SOURCE from 'virtual:voice-worker';
 import ORT_GLUE from 'virtual:ort-glue';
 import { Agent, type AgentSettings } from '../agent/agent.js';
-import type { VaultOps } from '../agent/graduation.js';
+import type { VaultOps } from '../vault/ops.js';
 import { Store, type StoreData } from '../store/store.js';
 import { boardFile, getLayout, setLayout, setVaultPath } from '../config/paths.js';
 import { checkEngine, createEngine, ENGINE_INFO, type EngineSession } from '../engines/index.js';
@@ -19,46 +19,52 @@ import { ElevenLabsTts, SarvamStt, SarvamTts, SonioxStt, SonioxTts } from '../vo
 import { LocalVoiceWorker, LocalWhisper } from '../voice/local/client.js';
 import { SystemTts } from '../voice/system.js';
 import { cacheRoot, ensureWasm } from '../voice/local/runtime.js';
+import { NAME, USER_TITLE } from '../brand.js';
 import { removeOldKokoroModels } from '../voice/local/cleanup.js';
 import { createLogger } from '../utils/logger.js';
 import type { Http } from '../voice/http.js';
 import type { SpeechToText, TextToSpeech } from '../voice/types.js';
 import { Transcript } from './transcript.js';
-import { VIEW_TYPE, VoiceAgentView } from './view.js';
-import { DEFAULT_SETTINGS, VoiceAgentSettingTab, mergeSettings, parseExtraArgs, type VoiceAgentSettings } from './settings.js';
+import { VIEW_TYPE, CortanaView } from './view.js';
+import { DEFAULT_SETTINGS, CortanaSettingTab, mergeSettings, parseExtraArgs, type CortanaSettings } from './settings.js';
 
 declare const ORT_WASM_SHA256: string;
 declare const TRANSFORMERS_VERSION: string;
 
-export default class VoiceAgentPlugin extends Plugin {
-  settings: VoiceAgentSettings = DEFAULT_SETTINGS;
+export default class CortanaPlugin extends Plugin {
+  settings: CortanaSettings = DEFAULT_SETTINGS;
   transcript = new Transcript();
   private vaultPath = '';
   private agent?: Agent;
   private store?: Store;
   private env?: NodeJS.ProcessEnv;
   private session?: VoiceSession;
+  /** Set in onunload; startAgent checks it after each await so a disabled plugin starts nothing. */
+  private unloaded = false;
   private player = new Player();
   private mic = new Mic();
   private localWorker?: LocalVoiceWorker;
   private saveTimer?: number;
   private pendingState?: StoreData;
   private stateFile = '';
+  /** Setup warnings already shown, keyed by the path they were about, so each shows once. */
+  private warned: string[] = [];
 
   async onload(): Promise<void> {
-    const saved = (await this.loadData()) as { settings?: Partial<VoiceAgentSettings> } | null;
+    const saved = (await this.loadData()) as { settings?: Partial<CortanaSettings>; warned?: unknown } | null;
     this.settings = mergeSettings(saved?.settings);
+    this.warned = Array.isArray(saved?.warned) ? saved.warned.filter((w): w is string => typeof w === 'string') : [];
     if (!Platform.isDesktopApp || !(this.app.vault.adapter instanceof FileSystemAdapter)) {
-      new Notice('Voice agent needs Obsidian on desktop.');
+      new Notice('Cortana needs Obsidian on desktop.');
       return;
     }
     this.vaultPath = this.app.vault.adapter.getBasePath();
     setVaultPath(this.vaultPath);
     setLayout(this.settings.layout);
 
-    this.registerView(VIEW_TYPE, (leaf) => new VoiceAgentView(leaf, this));
-    this.addRibbonIcon('audio-lines', 'Open voice agent', () => void this.openPanel());
-    this.addSettingTab(new VoiceAgentSettingTab(this.app, this));
+    this.registerView(VIEW_TYPE, (leaf) => new CortanaView(leaf, this));
+    this.addRibbonIcon('audio-lines', 'Open Cortana', () => void this.openPanel());
+    this.addSettingTab(new CortanaSettingTab(this.app, this));
 
     this.addCommand({ id: 'open-panel', name: 'Open panel', callback: () => void this.openPanel() });
     this.addCommand({ id: 'toggle-listening', name: 'Talk (start or stop listening)', callback: () => void this.toggleListening() });
@@ -72,12 +78,12 @@ export default class VoiceAgentPlugin extends Plugin {
     // Engine lookup and agent start can take a moment (login shell, files):
     // do it once the workspace is ready so Obsidian's startup is not delayed.
     this.app.workspace.onLayoutReady(() => {
+      const { boardPath, dailyFolder } = getLayout();
       if (!existsSync(boardFile(this.vaultPath))) {
-        new Notice(`Voice agent: no Kanban board at "${getLayout().boardPath}". Set the board path in the plugin settings.`, 15000);
+        this.warnOnce(`board:${boardPath}`, `Cortana: no Kanban board at "${boardPath}". Set the board path in the plugin settings.`);
       }
-      const { dailyFolder } = getLayout();
       if (dailyFolder && !existsSync(path.join(this.vaultPath, dailyFolder))) {
-        new Notice(`Voice agent: no daily notes folder at "${dailyFolder}", so the agent cannot keep out of your daily notes. Fix it in the plugin settings.`, 15000);
+        this.warnOnce(`daily:${dailyFolder}`, `Cortana: no daily notes folder at "${dailyFolder}", so the agent cannot keep out of your daily notes. Fix it in the plugin settings.`);
       }
       void this.startAgent();
       // Free the space Kokoro (0.1.x) used; harmless when there is nothing to remove.
@@ -89,6 +95,7 @@ export default class VoiceAgentPlugin extends Plugin {
   }
 
   onunload(): void {
+    this.unloaded = true;
     this.agent?.stop();
     this.mic.stop();
     this.player.dispose();
@@ -105,7 +112,7 @@ export default class VoiceAgentPlugin extends Plugin {
     try {
       if (existsSync(this.stateFile)) initial = JSON.parse(readFileSync(this.stateFile, 'utf-8')) as Partial<StoreData>;
     } catch (err) {
-      console.error('[voice-agent] Could not read state, starting fresh', err);
+      console.error('[cortana] Could not read state, starting fresh', err);
     }
     return new Store(initial, (data) => {
       this.pendingState = data;
@@ -123,7 +130,7 @@ export default class VoiceAgentPlugin extends Plugin {
       renameSync(`${this.stateFile}.tmp`, this.stateFile);
       this.pendingState = undefined;
     } catch (err) {
-      console.error('[voice-agent] Could not save state', err);
+      console.error('[cortana] Could not save state', err);
     }
   }
 
@@ -132,7 +139,6 @@ export default class VoiceAgentPlugin extends Plugin {
   private agentSettings(): AgentSettings {
     const s = this.settings;
     return {
-      agentName: s.agentName,
       checkpointTimes: s.checkpointTimes,
       greetOnOpen: s.greetOnOpen,
       pulses: s.pulses,
@@ -143,20 +149,42 @@ export default class VoiceAgentPlugin extends Plugin {
     };
   }
 
-  /** Moves and deletions through Obsidian, so links follow a moved note and deletions use the trash. */
+  /**
+   * Every vault write goes through Obsidian: edits with vault.process (atomic, so an
+   * open note keeps its keystrokes), moves so links follow, deletions to the trash.
+   */
   private vaultOps(): VaultOps {
+    const vault = this.app.vault;
     const file = (rel: string): TFile => {
-      const f = this.app.vault.getAbstractFileByPath(rel);
+      const f = vault.getAbstractFileByPath(rel);
       if (!(f instanceof TFile)) throw new Error(`No note at ${rel}`);
       return f;
     };
+    const ensureFolder = async (folder: string) => {
+      if (folder === '.' || folder === '' || vault.getAbstractFileByPath(folder)) return;
+      await ensureFolder(path.posix.dirname(folder));
+      try {
+        await vault.createFolder(folder);
+      } catch (err) {
+        if (!vault.getAbstractFileByPath(folder)) throw err;
+      }
+    };
     return {
       move: async (from, to) => {
-        const folder = path.posix.dirname(to);
-        if (folder !== '.' && !this.app.vault.getAbstractFileByPath(folder)) await this.app.vault.createFolder(folder);
+        await ensureFolder(path.posix.dirname(to));
         await this.app.fileManager.renameFile(file(from), to);
       },
       trash: async (rel) => this.app.fileManager.trashFile(file(rel)),
+      process: async (rel, edit) => {
+        const target = normalizePath(rel);
+        const existing = vault.getAbstractFileByPath(target);
+        if (existing instanceof TFile) {
+          await vault.process(existing, edit);
+          return;
+        }
+        await ensureFolder(path.posix.dirname(target));
+        await vault.create(target, edit(''));
+      },
     };
   }
 
@@ -179,6 +207,7 @@ export default class VoiceAgentPlugin extends Plugin {
   private async startAgent(): Promise<void> {
     try {
       this.env = await shellEnv();
+      if (this.unloaded) return;
       this.store = this.loadState();
       this.session = new VoiceSession(
         { handleUserMessage: (t, o) => this.requireAgent().handleUserMessage(t, o), interrupt: () => this.agent?.interrupt() },
@@ -189,9 +218,10 @@ export default class VoiceAgentPlugin extends Plugin {
         void this.session?.proactive(m.text, m.source, { changes: m.changes, speak: m.speak });
       }, this.http, this.vaultOps());
       await this.agent.start();
+      if (this.unloaded) this.agent.stop();
     } catch (err) {
-      console.error('[voice-agent] Failed to start', err);
-      new Notice(`Voice agent could not start: ${(err as Error).message}`, 10000);
+      console.error('[cortana] Failed to start', err);
+      new Notice(`Cortana could not start: ${(err as Error).message}`, 10000);
     }
   }
 
@@ -220,7 +250,7 @@ export default class VoiceAgentPlugin extends Plugin {
 
   private secret(name: string, label: string): string {
     const value = name ? this.app.secretStorage.getSecret(name) : null;
-    if (!value) throw new Error(`Set your ${label} API key in the voice agent settings.`);
+    if (!value) throw new Error(`Set your ${label} API key in the Cortana settings.`);
     return value;
   }
 
@@ -320,7 +350,7 @@ export default class VoiceAgentPlugin extends Plugin {
   }
 
   async toggleListening(): Promise<void> {
-    if (!this.session) return void new Notice('The voice agent is still starting.');
+    if (!this.session) return void new Notice('Cortana is still starting.');
     if (this.mic.active) {
       this.mic.stop();
       this.session.setListening(false);
@@ -343,7 +373,7 @@ export default class VoiceAgentPlugin extends Plugin {
   }
 
   async sendText(text: string): Promise<void> {
-    if (!this.session) return void new Notice('The voice agent is still starting.');
+    if (!this.session) return void new Notice('Cortana is still starting.');
     if (this.tts && !this.warmed) this.warmup();
     await this.session.sendText(text);
   }
@@ -356,10 +386,9 @@ export default class VoiceAgentPlugin extends Plugin {
   async previewVoice(): Promise<void> {
     const tts = this.tts ?? this.buildTts();
     if (!tts) return;
-    const name = this.settings.agentName || 'your voice agent';
     try {
       this.player.stop();
-      await this.player.enqueue(tts.synthesize(`Hi, I'm ${name}. This is how I sound.`));
+      await this.player.enqueue(tts.synthesize(`Hi ${USER_TITLE}, I'm ${NAME}. This is how I sound.`));
     } catch (err) {
       new Notice(`Voice test failed: ${(err as Error).message}`);
     }
@@ -374,11 +403,14 @@ export default class VoiceAgentPlugin extends Plugin {
   // --- panel ---
 
   private panelVisible(): boolean {
-    return this.app.workspace.getLeavesOfType(VIEW_TYPE).some(l => (l.view as VoiceAgentView).containerEl.isShown());
+    return this.app.workspace.getLeavesOfType(VIEW_TYPE).some(l => l.view instanceof CortanaView && l.view.containerEl.isShown());
   }
 
   private setNotice(text: string): void {
-    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) (leaf.view as VoiceAgentView).setNotice(text);
+    for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+      // A panel in a background tab is a DeferredView until shown.
+      if (leaf.view instanceof CortanaView) leaf.view.setNotice(text);
+    }
   }
 
   async openPanel(): Promise<void> {
@@ -395,8 +427,16 @@ export default class VoiceAgentPlugin extends Plugin {
 
   // --- settings ---
 
+  /** A setup warning, shown once per path rather than on every launch. */
+  private warnOnce(key: string, text: string): void {
+    if (this.warned.includes(key)) return;
+    this.warned.push(key);
+    new Notice(text, 15000);
+    void this.saveData({ settings: this.settings, warned: this.warned });
+  }
+
   async saveSettings(opts: { restartAgent?: boolean; voice?: boolean; engine?: boolean } = {}): Promise<void> {
-    await this.saveData({ settings: this.settings });
+    await this.saveData({ settings: this.settings, warned: this.warned });
     if (opts.restartAgent) {
       setLayout(this.settings.layout);
       this.agent?.updateSettings(this.agentSettings());

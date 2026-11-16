@@ -13,8 +13,14 @@ import path from 'path';
 
 export const WASM_FILE = 'ort-wasm-simd-threaded.jsep.wasm';
 
-export function cacheRoot(): string {
-  return path.join(os.homedir(), '.obsidian-voice-agent');
+export function cacheRoot(home = os.homedir()): string {
+  const root = path.join(home, '.obsidian-cortana');
+  // Before the rename to Cortana (0.2.x) this was ~/.obsidian-voice-agent.
+  const legacy = path.join(home, '.obsidian-voice-agent');
+  if (!existsSync(root) && existsSync(legacy)) {
+    try { renameSync(legacy, root); } catch { return legacy; }
+  }
+  return root;
 }
 
 export function sha256(data: Uint8Array): string {

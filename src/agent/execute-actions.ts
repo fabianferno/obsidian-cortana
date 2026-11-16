@@ -12,10 +12,10 @@ import { handlePersonMention } from '../journal/people.js';
 import { handleLiteratureMention } from '../journal/literature.js';
 import { captureToNote } from '../journal/capture.js';
 import { applyConfigEdit, describeEdit, GATED_FILES } from '../config/editor.js';
-import path from 'path';
-import { agentDir, getLayout } from '../config/paths.js';
+import { getLayout } from '../config/paths.js';
 import type { NoteChange } from './changes.js';
 import { createLogger } from '../utils/logger.js';
+import { vaultRel, type VaultOps } from '../vault/ops.js';
 
 const logger = createLogger('actions');
 
@@ -48,6 +48,7 @@ export interface ActionResult {
 
 export async function executeVaultActions(
   vaultPath: string,
+  ops: VaultOps,
   store: Store,
   actions: VaultAction[],
   onChange: (change: NoteChange) => void = () => undefined,
@@ -55,31 +56,30 @@ export async function executeVaultActions(
   const results: ActionResult[] = [];
   const fail = (text: string) => results.push({ text, ok: false });
   const done = (text: string) => results.push({ text, ok: true });
-  const rel = (file: string) => path.relative(vaultPath, file).split(path.sep).join('/');
   const board = () => onChange({ kind: 'updated', path: getLayout().boardPath });
   const captured = (r: { action: 'appended' | 'created'; filePath: string }) =>
-    onChange({ kind: r.action === 'created' ? 'created' : 'updated', path: rel(r.filePath) });
+    onChange({ kind: r.action === 'created' ? 'created' : 'updated', path: vaultRel(vaultPath, r.filePath) });
 
   for (const action of actions) {
     try {
       switch (action.type) {
         case 'move_task': {
-          const changed = mutateKanban(vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: action.to }]);
+          const changed = await mutateKanban(ops, vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: action.to }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing moved.`);
           else board();
           break;
         }
         case 'complete_task': {
-          const changed = mutateKanban(vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: 'Done' }]);
+          const changed = await mutateKanban(ops, vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: 'Done' }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing was marked done.`);
           else board();
           break;
         }
         case 'add_task':
-          if (mutateKanban(vaultPath, [{ type: 'add', task: action.text, toColumn: action.column }])) board();
+          if (await mutateKanban(ops, vaultPath, [{ type: 'add', task: action.text, toColumn: action.column }])) board();
           break;
         case 'reschedule_task': {
-          const moved = updateCardDeadlineByTitle(vaultPath, action.task, action.newDate);
+          const moved = await updateCardDeadlineByTitle(ops, vaultPath, action.task, action.newDate);
           if (moved) {
             done(`Moved "${action.task}" to ${action.newDate}.`);
             board();
@@ -88,19 +88,19 @@ export async function executeVaultActions(
           break;
         }
         case 'note': {
-          const res = captureToNote(vaultPath, { title: action.title, noteType: action.noteType, text: action.text });
+          const res = await captureToNote(ops, vaultPath, { title: action.title, noteType: action.noteType, text: action.text });
           logger.info(`Captured to ${res.filePath} (${res.action})`);
           captured(res);
           break;
         }
         case 'people_note':
-          captured(handlePersonMention(action.name, action.note, vaultPath));
+          captured(await handlePersonMention(ops, action.name, action.note, vaultPath));
           break;
         case 'literature_note':
-          captured(handleLiteratureMention(action.title, action.noteType, action.source, action.note, vaultPath));
+          captured(await handleLiteratureMention(ops, action.title, action.noteType, action.source, action.note, vaultPath));
           break;
         case 'update_memory':
-          appendMemoryEntry(vaultPath, action.observation);
+          await appendMemoryEntry(ops, vaultPath, action.observation);
           onChange({ kind: 'updated', path: `${getLayout().agentFolder}/memory.md` });
           break;
         case 'propose_config_edit': {
@@ -132,7 +132,7 @@ export async function executeVaultActions(
             fail("There's no pending change to apply any more, so nothing changed.");
             break;
           }
-          const result = applyConfigEdit(agentDir(vaultPath), pending.edit);
+          const result = await applyConfigEdit(ops, vaultPath, pending.edit);
           await store.setSessionState(PENDING_EDIT_KEY, '');
           if (result.ok) {
             done(`Done. ${pending.edit.file} updated.`);

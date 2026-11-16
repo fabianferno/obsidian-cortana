@@ -1,14 +1,21 @@
 // vault/writer.ts
 
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync, readFileSync } from 'fs';
 import type { KanbanMutation } from '../config/types.js';
 import { applyConfigEdit } from '../config/editor.js';
 import { parseInboxKanban } from './parser.js';
 import { mintCardId } from './card-id.js';
 import { createLogger } from '../utils/logger.js';
-import { boardFile, agentDir } from '../config/paths.js';
+import { boardFile, getLayout } from '../config/paths.js';
+import type { VaultOps } from './ops.js';
 
 const logger = createLogger('writer');
+
+/** Read-modify-write the board through VaultOps. A missing board is an error, never created. */
+async function processBoard(ops: VaultOps, vaultPath: string, edit: (content: string) => string): Promise<void> {
+  if (!existsSync(boardFile(vaultPath))) throw new Error(`No board at ${getLayout().boardPath}`);
+  await ops.process(getLayout().boardPath, edit);
+}
 
 /** Collect all block-ref ids currently present on the board. */
 function collectExistingIds(content: string): Set<string> {
@@ -24,23 +31,22 @@ function collectExistingIds(content: string): Set<string> {
  * Append a block-ref id (` ^xxxxxx`) to every checklist line that lacks one.
  * Writes the board in place. Returns the newly minted ids. Idempotent.
  */
-export function ensureCardIds(vaultPath: string): string[] {
-  const inboxPath = boardFile(vaultPath);
-  const content = readFileSync(inboxPath, 'utf-8');
-  const existing = collectExistingIds(content);
-
-  const minted: string[] = [];
-  const out = content.split('\n').map(line => {
-    const m = line.match(/^(\s*-\s*\[[ xX]\]\s+)(.+?)(\s*)$/);
-    if (!m) return line;
-    const body = m[2];
-    if (/\s\^[a-z0-9]+$/.test(body)) return line; // already has an id
-    const id = mintCardId(existing);
-    minted.push(id);
-    return `${m[1]}${body} ^${id}`;
+export async function ensureCardIds(ops: VaultOps, vaultPath: string): Promise<string[]> {
+  let minted: string[] = [];
+  await processBoard(ops, vaultPath, content => {
+    const existing = collectExistingIds(content);
+    minted = [];
+    const out = content.split('\n').map(line => {
+      const m = line.match(/^(\s*-\s*\[[ xX]\]\s+)(.+?)(\s*)$/);
+      if (!m) return line;
+      const body = m[2];
+      if (/\s\^[a-z0-9]+$/.test(body)) return line; // already has an id
+      const id = mintCardId(existing);
+      minted.push(id);
+      return `${m[1]}${body} ^${id}`;
+    });
+    return minted.length > 0 ? out.join('\n') : content;
   });
-
-  if (minted.length > 0) writeFileSync(inboxPath, out.join('\n'), 'utf-8');
   return minted;
 }
 
@@ -51,11 +57,18 @@ export function ensureCardIds(vaultPath: string): string[] {
  * user "moved it" only when a move really happened, instead of claiming a write
  * that never landed (the exact failure that made the agent narrate phantom moves).
  */
-export function mutateKanban(vaultPath: string, mutations: KanbanMutation[]): boolean {
-  const inboxPath = boardFile(vaultPath);
-  const original = readFileSync(inboxPath, 'utf-8');
-  let content = original;
+export async function mutateKanban(ops: VaultOps, vaultPath: string, mutations: KanbanMutation[]): Promise<boolean> {
+  let changed = false;
+  await processBoard(ops, vaultPath, original => {
+    const content = applyMutations(original, mutations);
+    changed = content !== original;
+    return content;
+  });
+  return changed;
+}
 
+function applyMutations(original: string, mutations: KanbanMutation[]): string {
+  let content = original;
   for (const mutation of mutations) {
     if (!mutation.task) continue; // skip if LLM returned empty/undefined task
     switch (mutation.type) {
@@ -74,9 +87,7 @@ export function mutateKanban(vaultPath: string, mutations: KanbanMutation[]): bo
     }
   }
 
-  if (content === original) return false;
-  writeFileSync(inboxPath, content, 'utf-8');
-  return true;
+  return content;
 }
 
 /**
@@ -90,9 +101,17 @@ export function mutateKanban(vaultPath: string, mutations: KanbanMutation[]): bo
  * the text-matching move path, which re-mints one). Returns the moved card texts.
  * Idempotent: Done/Archive are terminal, so a healed card is never moved again.
  */
-export function autoMoveCompletedToDone(vaultPath: string): string[] {
-  const inboxPath = boardFile(vaultPath);
-  const content = readFileSync(inboxPath, 'utf-8');
+export async function autoMoveCompletedToDone(ops: VaultOps, vaultPath: string): Promise<string[]> {
+  let texts: string[] = [];
+  await processBoard(ops, vaultPath, content => {
+    const r = moveCompletedToDone(content);
+    texts = r.moved;
+    return r.content;
+  });
+  return texts;
+}
+
+function moveCompletedToDone(content: string): { content: string; moved: string[] } {
   const lines = content.split('\n');
 
   const TERMINAL = new Set(['Done', 'Archive']);
@@ -116,7 +135,7 @@ export function autoMoveCompletedToDone(vaultPath: string): string[] {
     kept.push(line);
   }
 
-  if (moved.length === 0) return [];
+  if (moved.length === 0) return { content, moved: [] };
 
   // Pass 2: drop the lifted cards at the end of the Done column. Done is followed
   // by the ## Archive header in this vault, so the next-header boundary flushes
@@ -134,8 +153,7 @@ export function autoMoveCompletedToDone(vaultPath: string): string[] {
   }
   if (inDone) for (const m of moved) out.push(m.line);
 
-  writeFileSync(inboxPath, out.join('\n'), 'utf-8');
-  return moved.map(m => m.text);
+  return { content: out.join('\n'), moved: moved.map(m => m.text) };
 }
 
 /**
@@ -162,19 +180,20 @@ export function countColumnCards(vaultPath: string, columns: string[]): number {
  * `/clearboard` admin command to empty the terminal Done/Archive columns.
  * Returns the number of cards removed; a no-op returns 0 without rewriting.
  */
-export function clearColumns(vaultPath: string, columns: string[]): number {
-  const inboxPath = boardFile(vaultPath);
-  const content = readFileSync(inboxPath, 'utf-8');
+export async function clearColumns(ops: VaultOps, vaultPath: string, columns: string[]): Promise<number> {
   const targets = new Set(columns);
-  let column = '';
   let removed = 0;
-  const kept = content.split('\n').filter(line => {
-    const header = line.trim().match(/^## (.+)$/);
-    if (header) { column = header[1].trim(); return true; }
-    if (targets.has(column) && /^\s*-\s*\[[ xX]\]\s+/.test(line)) { removed++; return false; }
-    return true;
+  await processBoard(ops, vaultPath, content => {
+    let column = '';
+    removed = 0;
+    const kept = content.split('\n').filter(line => {
+      const header = line.trim().match(/^## (.+)$/);
+      if (header) { column = header[1].trim(); return true; }
+      if (targets.has(column) && /^\s*-\s*\[[ xX]\]\s+/.test(line)) { removed++; return false; }
+      return true;
+    });
+    return removed > 0 ? kept.join('\n') : content;
   });
-  if (removed > 0) writeFileSync(inboxPath, kept.join('\n'), 'utf-8');
   return removed;
 }
 
@@ -308,10 +327,9 @@ function escapeRegex(str: string): string {
 }
 
 /** Rewrite the @{date}/@@{time} of the card whose line ends with ` ^cardId`. */
-export function updateCardDeadlineById(vaultPath: string, cardId: string, date: string, time: string | null): void {
-  const inboxPath = boardFile(vaultPath);
+export async function updateCardDeadlineById(ops: VaultOps, vaultPath: string, cardId: string, date: string, time: string | null): Promise<void> {
   const tail = new RegExp(`\\s\\^${cardId}\\s*$`);
-  const out = readFileSync(inboxPath, 'utf-8').split('\n').map(line => {
+  await processBoard(ops, vaultPath, content => content.split('\n').map(line => {
     if (!tail.test(line)) return line;
     // Strip any existing date/time annotations, then re-insert before the id.
     const stripped = line
@@ -320,8 +338,7 @@ export function updateCardDeadlineById(vaultPath: string, cardId: string, date: 
       .replace(/\s{2,}/g, ' ');
     const ann = time ? `@{${date}} @@{${time}}` : `@{${date}}`;
     return stripped.replace(new RegExp(`\\s\\^${cardId}\\s*$`), ` ${ann} ^${cardId}`);
-  });
-  writeFileSync(inboxPath, out.join('\n'), 'utf-8');
+  }).join('\n'));
 }
 
 /** Strip date/time/wikilink/id decoration so an LLM-supplied title matches a raw card line. */
@@ -346,11 +363,22 @@ function normalizeCardTitle(s: string): string {
  * no linked event -- e.g. a past-due card -- while the model still narrated a
  * move that never landed. The board is authoritative here.
  */
-export function updateCardDeadlineByTitle(vaultPath: string, title: string, date: string, time: string | null = null): boolean {
-  const inboxPath = boardFile(vaultPath);
-  const lines = readFileSync(inboxPath, 'utf-8').split('\n');
+export async function updateCardDeadlineByTitle(ops: VaultOps, vaultPath: string, title: string, date: string, time: string | null = null): Promise<boolean> {
+  if (!normalizeCardTitle(title)) return false;
+  let matched = false;
+  await processBoard(ops, vaultPath, content => {
+    const next = rescheduleByTitle(content, title, date, time);
+    matched = next !== null;
+    return next ?? content;
+  });
+  return matched;
+}
+
+/** The board with the matching card's date rewritten, or null when no card matches. */
+function rescheduleByTitle(content: string, title: string, date: string, time: string | null): string | null {
+  const lines = content.split('\n');
   const want = normalizeCardTitle(title);
-  if (!want) return false;
+  if (!want) return null;
 
   const bodyOf = (line: string): string | null => {
     const m = line.match(/^\s*-\s*\[[ xX]\]\s+(.+)$/);
@@ -365,7 +393,7 @@ export function updateCardDeadlineByTitle(vaultPath: string, title: string, date
     candidates = lines.map((l, i) => ({ i, body: bodyOf(l) }))
       .filter((c): c is { i: number; body: string } => c.body !== null && (c.body.includes(want) || want.includes(c.body)));
   }
-  if (candidates.length === 0) return false;
+  if (candidates.length === 0) return null;
 
   // A reschedule targets a card that already carries a date; prefer that over a
   // same-titled dateless twin so we move the real deadline instead of stamping a
@@ -385,30 +413,27 @@ export function updateCardDeadlineByTitle(vaultPath: string, title: string, date
     .trimEnd();
   const ann = time ? `@{${date}} @@{${time}}` : `@{${date}}`;
   lines[target] = id ? `${base} ${ann} ${id}` : `${base} ${ann}`;
-
-  writeFileSync(inboxPath, lines.join('\n'), 'utf-8');
-  return true;
+  return lines.join('\n');
 }
 
 /** Remove the card whose line ends with ` ^cardId`. */
-export function deleteCardById(vaultPath: string, cardId: string): void {
-  const inboxPath = boardFile(vaultPath);
+export async function deleteCardById(ops: VaultOps, vaultPath: string, cardId: string): Promise<void> {
   const tail = new RegExp(`\\s\\^${cardId}\\s*$`);
-  const out = readFileSync(inboxPath, 'utf-8').split('\n').filter(l => !tail.test(l));
-  writeFileSync(inboxPath, out.join('\n'), 'utf-8');
+  await processBoard(ops, vaultPath, content => content.split('\n').filter(l => !tail.test(l)).join('\n'));
 }
 
-export function appendToSection(filePath: string, sectionHeader: string, entry: string): void {
-  const content = readFileSync(filePath, 'utf-8');
+/** Adds `entry` as the last line of `sectionHeader` in the vault file at `rel`. */
+export async function appendToSection(ops: VaultOps, rel: string, sectionHeader: string, entry: string): Promise<void> {
+  await ops.process(rel, content => addToSection(content, sectionHeader, entry));
+}
+
+function addToSection(content: string, sectionHeader: string, entry: string): string {
   const lines = content.split('\n');
 
   const headerIdx = lines.findIndex((l) => l.trimEnd() === sectionHeader);
 
   // Section not present: add it at the end, separated by one blank line.
-  if (headerIdx === -1) {
-    writeFileSync(filePath, `${content.replace(/\s+$/, '')}\n\n${sectionHeader}\n${entry}\n`, 'utf-8');
-    return;
-  }
+  if (headerIdx === -1) return `${content.replace(/\s+$/, '')}\n\n${sectionHeader}\n${entry}\n`;
 
   // The section runs until the next markdown heading (or end of file).
   let sectionEnd = lines.length;
@@ -425,15 +450,15 @@ export function appendToSection(filePath: string, sectionHeader: string, entry: 
   }
 
   lines.splice(insertAfter + 1, 0, entry);
-  writeFileSync(filePath, lines.join('\n'), 'utf-8');
+  return lines.join('\n');
 }
 
-export function appendMemoryEntry(vaultPath: string, observation: string): void {
+export async function appendMemoryEntry(ops: VaultOps, vaultPath: string, observation: string): Promise<void> {
   const date = new Date().toISOString().split('T')[0];
 
   // Newest-at-top: prompt-builder reads the 20 most recent entries off the front
   // with config.memory.slice(0, 20), so a new entry must land first.
-  const result = applyConfigEdit(agentDir(vaultPath), {
+  const result = await applyConfigEdit(ops, vaultPath, {
     file: 'memory.md', section: 'Entries',
     operation: 'prepend_bullet', content: `[${date}] ${observation}`,
   });

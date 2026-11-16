@@ -110,7 +110,7 @@ describe('graduation', () => {
     const g = graduation(() => block({ type: 'ask_note', file: 'Synapses/Kanimozhi.md', question: 'How do you know Kanimozhi?' }));
     const result = await g.run(5, NOW);
     expect(result.asked).toEqual(['Kanimozhi']);
-    expect(read('Synapses/Kanimozhi.md')).toContain('# Kanimozhi\n\n> [!question] Voice Agent\n> How do you know Kanimozhi?\n');
+    expect(read('Synapses/Kanimozhi.md')).toContain('# Kanimozhi\n\n> [!question] Cortana\n> How do you know Kanimozhi?\n');
     // Not picked again until the user writes something.
     const state = await loadGraduationState(store);
     expect(pickCandidates(vault, state, new Date(NOW.getTime() + 3 * DAY), 5)).toEqual([]);

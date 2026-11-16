@@ -1,14 +1,14 @@
 // plugin/settings.ts - everything the user can set, and the settings tab.
 
 import { App, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
-import type VoiceAgentPlugin from './main.js';
+import type CortanaPlugin from './main.js';
 import { ENGINES, ENGINE_INFO, type EngineName } from '../engines/index.js';
 import { DEFAULT_LAYOUT, type VaultLayout } from '../config/paths.js';
 import { parseTime } from '../checkins/scheduler.js';
 import { pickBestVoice, systemVoices, voiceQuality, type VoiceInfo } from '../voice/system.js';
 
 export * from './settings-data.js';
-import { type SttChoice, type StringSettingKey, type TtsChoice, type VoiceAgentSettings } from './settings-data.js';
+import { type SttChoice, type StringSettingKey, type TtsChoice, type CortanaSettings } from './settings-data.js';
 
 const VOICE_TIP = Platform.isMacOS
   ? 'Automatic uses your best installed voice for your language. For a much more natural one, download a Premium or Enhanced voice in System Settings, Accessibility, Spoken Content, System voice, Manage voices, then restart Obsidian. (Personal Voice is not available to Obsidian.)'
@@ -30,8 +30,8 @@ const WHISPER_MODELS: Record<string, string> = {
   'Xenova/whisper-base': 'Base (multilingual)',
 };
 
-export class VoiceAgentSettingTab extends PluginSettingTab {
-  constructor(app: App, private readonly plugin: VoiceAgentPlugin) {
+export class CortanaSettingTab extends PluginSettingTab {
+  constructor(app: App, private readonly plugin: CortanaPlugin) {
     super(app, plugin);
   }
 
@@ -203,13 +203,6 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
 
     // --- check-ins ---
     new Setting(containerEl).setName('Check-ins').setHeading();
-    new Setting(containerEl)
-      .setName('Agent name')
-      .setDesc('What the agent calls itself. Its voice and personality live in identity.md and soul.md in the agent folder.')
-      .addText(t => t.setPlaceholder('Agent').setValue(s.agentName).onChange(async v => {
-        s.agentName = v.trim();
-        await save({ restartAgent: true });
-      }));
     for (const [key, label] of [['morning', 'Morning briefing'], ['midday', 'Midday check'], ['evening', 'Evening wind-down']] as const) {
       new Setting(containerEl)
         .setName(label)
@@ -228,7 +221,7 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
     // --- second brain ---
     new Setting(containerEl).setName('Second brain').setHeading();
     this.toggle(containerEl, 'File things from conversations', 'People, projects, your own ideas and decisions you mention get a dated line in their note, or a new note in the capture folder.', 'capture', { restartAgent: true });
-    this.toggle(containerEl, 'Tend capture notes daily', 'Once a day the agent tidies ready notes in the capture folder and moves them to the notes folder, or leaves a question inside the note. Your words are never rewritten.', 'graduate', { restartAgent: true });
+    this.toggle(containerEl, 'Tend capture notes daily', 'Off by default. Once a day the agent tidies ready notes in the capture folder and moves them to the notes folder, or leaves a question inside the note. Your words are never rewritten.', 'graduate', { restartAgent: true });
     new Setting(containerEl)
       .setName('Notes per day')
       .setDesc('How many capture notes the daily pass works on. Each one is a turn of your engine. The /graduate command runs a pass now.')
@@ -260,7 +253,7 @@ export class VoiceAgentSettingTab extends PluginSettingTab {
     }));
   }
 
-  private toggle(el: HTMLElement, name: string, desc: string, key: keyof VoiceAgentSettings, opts: { restartAgent?: boolean; voice?: boolean } = {}): void {
+  private toggle(el: HTMLElement, name: string, desc: string, key: keyof CortanaSettings, opts: { restartAgent?: boolean; voice?: boolean } = {}): void {
     new Setting(el).setName(name).setDesc(desc).addToggle(t => t.setValue(Boolean(this.plugin.settings[key])).onChange(async v => {
       (this.plugin.settings as unknown as Record<string, unknown>)[key] = v;
       await this.plugin.saveSettings(opts);

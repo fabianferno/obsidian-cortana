@@ -38,7 +38,7 @@ describe('timeline', () => {
 describe('question callout', () => {
   it('goes under the title and replaces an older one', () => {
     const asked = addQuestion(NOTE, 'How did you meet?');
-    expect(asked).toContain('# Maria B\n\n> [!question] Voice Agent\n> How did you meet?\n\n- From Germany');
+    expect(asked).toContain('# Maria B\n\n> [!question] Cortana\n> How did you meet?\n\n- From Germany');
     expect(questionText(asked)).toBe('How did you meet?');
     const again = addQuestion(asked, 'Still in touch?');
     expect(again.match(/\[!question\]/g)).toHaveLength(1);
@@ -51,6 +51,12 @@ describe('question callout', () => {
     expect(hasQuestion(out)).toBe(false);
     expect(out).toContain('At EthCC');
     expect(out).not.toContain('How did you meet?');
+  });
+
+  it('still recognizes callouts written as Voice Agent', () => {
+    const old = '# Maria B\n\n> [!question] Voice Agent\n> How did you meet?\n\n- From Germany\n';
+    expect(questionText(old)).toBe('How did you meet?');
+    expect(hasQuestion(removeQuestions(old))).toBe(false);
   });
 });
 

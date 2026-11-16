@@ -11,10 +11,10 @@ export type TtsChoice = (typeof TTS_CHOICES)[number];
 
 /** Settings holding plain text, edited with the generic text field. */
 export type StringSettingKey = {
-  [K in keyof VoiceAgentSettings]: VoiceAgentSettings[K] extends string ? K : never;
-}[keyof VoiceAgentSettings];
+  [K in keyof CortanaSettings]: CortanaSettings[K] extends string ? K : never;
+}[keyof CortanaSettings];
 
-export interface VoiceAgentSettings {
+export interface CortanaSettings {
   engine: EngineName;
   /** Optional full path per engine, when it is not on PATH. */
   engineBin: Record<EngineName, string>;
@@ -22,7 +22,6 @@ export interface VoiceAgentSettings {
   permissions: 'edit' | 'full';
   extraArgs: string;
 
-  agentName: string;
   layout: VaultLayout;
   checkpointTimes: CheckpointTimes;
   greetOnOpen: boolean;
@@ -59,21 +58,21 @@ export interface VoiceAgentSettings {
   sonioxLanguage: string;
 }
 
-export const DEFAULT_SETTINGS: VoiceAgentSettings = {
+export const DEFAULT_SETTINGS: CortanaSettings = {
   engine: 'claude',
   engineBin: { claude: '', codex: '', antigravity: '' },
   model: '',
   permissions: 'edit',
   extraArgs: '',
 
-  agentName: '',
   layout: { ...DEFAULT_LAYOUT },
   checkpointTimes: { ...DEFAULT_CHECKPOINT_TIMES },
   greetOnOpen: true,
   pulses: true,
   weather: true,
   capture: true,
-  graduate: true,
+  // Off until the user turns it on: it moves notes, so it should never start by surprise.
+  graduate: false,
   graduatePerDay: 5,
 
   stt: 'local',
@@ -100,9 +99,10 @@ export const DEFAULT_SETTINGS: VoiceAgentSettings = {
 };
 
 /** Fills in anything missing from saved settings (older versions, hand edits). */
-export function mergeSettings(saved: Partial<VoiceAgentSettings> | null | undefined): VoiceAgentSettings {
+export function mergeSettings(saved: Partial<CortanaSettings> | null | undefined): CortanaSettings {
   // Settings from 0.1.x: 'local' speech was Kokoro, now the system voice.
-  const { localVoice: _voice, localSpeed: _speed, ...s } = (saved ?? {}) as Partial<VoiceAgentSettings> & { localVoice?: unknown; localSpeed?: unknown };
+  // agentName from 0.2.x: the name is now always Cortana.
+  const { localVoice: _voice, localSpeed: _speed, agentName: _name, ...s } = (saved ?? {}) as Partial<CortanaSettings> & { localVoice?: unknown; localSpeed?: unknown; agentName?: unknown };
   return {
     ...DEFAULT_SETTINGS,
     ...s,

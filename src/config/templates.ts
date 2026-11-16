@@ -3,8 +3,10 @@
 // Written once, only for files that do not exist yet, so a user's own files
 // are never touched. The section headings matter: config edits target them.
 
-import { existsSync, mkdirSync, writeFileSync } from 'fs';
+import { existsSync } from 'fs';
 import path from 'path';
+import { agentDir, getLayout } from './paths.js';
+import type { VaultOps } from '../vault/ops.js';
 
 export const TEMPLATES: Record<string, string> = {
   'soul.md': `# Soul
@@ -32,7 +34,7 @@ export const TEMPLATES: Record<string, string> = {
   'identity.md': `# Identity
 
 ## Name
-Agent
+Cortana
 
 ## Voice
 - Warm but firm, like a friend who pushes.
@@ -91,13 +93,12 @@ Observations the agent records about the user, newest first.
 };
 
 /** Creates the agent folder and any missing starter files. Returns the files it created. */
-export function ensureAgentFiles(dir: string): string[] {
-  mkdirSync(dir, { recursive: true });
+export async function ensureAgentFiles(ops: VaultOps, vaultPath: string): Promise<string[]> {
   const created: string[] = [];
   for (const [file, content] of Object.entries(TEMPLATES)) {
-    const p = path.join(dir, file);
-    if (existsSync(p)) continue;
-    writeFileSync(p, content, 'utf-8');
+    if (existsSync(path.join(agentDir(vaultPath), file))) continue;
+    // Only an empty file is filled, in case one appeared since the check.
+    await ops.process(path.posix.join(getLayout().agentFolder, file), current => current || content);
     created.push(file);
   }
   return created;

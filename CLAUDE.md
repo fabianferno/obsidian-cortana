@@ -4,7 +4,7 @@ Guidance for Claude Code (and other coding agents) working in this repository.
 
 ## What This Is
 
-**Voice Agent**, an Obsidian desktop plugin you talk to. It uses a coding-agent CLI on the
+**Cortana**, an Obsidian desktop plugin you talk to. It uses a coding-agent CLI on the
 user's computer (Claude Code by default, Codex or Antigravity) as its brain, listens and
 listens with local Whisper and speaks with the OS's own voice (or ElevenLabs / Sarvam /
 Soniox), and adds accountability features:
@@ -13,7 +13,7 @@ on the kanban Doing column, filing what you mention into notes, and a daily pass
 ready capture notes to the notes folder or asks a question inside them. Everything runs
 inside Obsidian; there is no server.
 
-Agent state and the local voice runtime live in `~/.obsidian-voice-agent/`, outside the
+Agent state and the local voice runtime live in `~/.obsidian-cortana/` (moved from `~/.obsidian-voice-agent/` on first run), outside the
 vault, so sync and git plugins never pick them up.
 
 ## Commands
@@ -54,8 +54,11 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   writes. `missingUserLines` refuses any rewrite that drops a line the user wrote. Moves go
   through the injected `VaultOps` (Obsidian's fileManager, so links follow). State lives in the
   store under `graduation`; actions are logged to `<agentFolder>/log.md`.
+- `src/vault/ops.ts` - `VaultOps`: every write inside the vault (`process`, an atomic
+  read-modify-write, plus `move` and `trash`). The plugin backs it with `app.vault.process` /
+  `fileManager`; `fsVaultOps` is the fs version for tests. Writers are async and take `ops`.
 - `src/vault/notes.ts` - note shape helpers: find by name or alias, `## Timeline` append, the
-  `> [!question] Voice Agent` callout. `src/journal/capture.ts` - the `note` action writer.
+  `> [!question] Cortana` callout (old `Voice Agent` callouts still recognized). `src/journal/capture.ts` - the `note` action writer.
 - `src/agent/execute-actions.ts` - runs actions through the tested writers. Config edits are
   gated: propose stages (30 min TTL), apply writes, discard drops.
 - `src/voice/` - `session.ts` (utterance -> STT -> agent -> sentence chunks -> TTS -> player,
@@ -79,6 +82,8 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - The user's own lines in a note are never rewritten. Agent additions go to `## Timeline` with a
   source; only the summary under the title is rewritten. Notes are trashed only after a yes.
 - `editor.ts` is the only write path for the personality files.
+- Files inside the vault are written only through `VaultOps` (`ops.process`), never `fs`, so an
+  open note keeps its keystrokes. Reads may use `fs`; `~/.obsidian-cortana` state stays on `fs`.
 - Use `window.setTimeout` / `window.setInterval` (popout-safe); tests alias `window` to the
   global object in `tests/setup.ts`.
 - HTTP goes through the injected `Http` function (Obsidian's `requestUrl` in the plugin, a

@@ -6,16 +6,19 @@
 // first. The engine only reads and decides, in its own read-only session; every
 // write happens here, and a rewrite that drops any of the user's lines is refused.
 
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync, type Dirent } from 'fs';
+import { existsSync, readdirSync, readFileSync, statSync, type Dirent } from 'fs';
 import path from 'path';
 import type { EngineSession } from '../engines/types.js';
 import type { Store } from '../store/store.js';
-import { agentDir, getLayout } from '../config/paths.js';
+import { getLayout } from '../config/paths.js';
 import { extractActionBlocks } from '../brain/actions.js';
 import { localDate } from '../checkins/scheduler.js';
 import { addQuestion, hasQuestion, hashContent, missingUserLines, questionText, removeQuestions } from '../vault/notes.js';
 import { createLogger } from '../utils/logger.js';
 import type { NoteChange } from './changes.js';
+import type { VaultOps } from '../vault/ops.js';
+
+export { fsVaultOps, type VaultOps } from '../vault/ops.js';
 
 const logger = createLogger('graduation');
 
@@ -23,28 +26,6 @@ const STATE_KEY = 'graduation';
 const QUIET_BEFORE_MS = 48 * 60 * 60 * 1000;
 const ANSWER_SETTLE_MS = 60 * 60 * 1000;
 const TURN_TIMEOUT_MS = 5 * 60 * 1000;
-
-/** File moves that keep links working (Obsidian's file manager in the plugin). */
-export interface VaultOps {
-  move(fromRel: string, toRel: string): Promise<void>;
-  trash(rel: string): Promise<void>;
-}
-
-/** Plain file-system moves, for tests and when no Obsidian file manager is available. */
-export function fsVaultOps(vaultPath: string): VaultOps {
-  return {
-    async move(fromRel, toRel) {
-      const to = path.join(vaultPath, toRel);
-      mkdirSync(path.dirname(to), { recursive: true });
-      renameSync(path.join(vaultPath, fromRel), to);
-    },
-    async trash(rel) {
-      const to = path.join(vaultPath, '.trash', path.basename(rel));
-      mkdirSync(path.dirname(to), { recursive: true });
-      renameSync(path.join(vaultPath, rel), to);
-    },
-  };
-}
 
 export interface GraduationState {
   lastRun?: string;
@@ -289,6 +270,11 @@ export class Graduation {
     // The note may have changed while the engine thought; never write over that.
     if (readFileSync(file, 'utf-8') !== original) throw new Error('changed while working on it');
 
+    // Atomic write that refuses to land over an edit made since the read.
+    const write = (next: string) => this.ops.process(c.rel, current => {
+      if (current !== original) throw new Error('changed while working on it');
+      return next;
+    });
     const keepsWords = (next: string) => {
       const lost = missingUserLines(original, next);
       if (lost.length) throw new Error(`would have dropped ${lost.length} of your lines`);
@@ -301,23 +287,23 @@ export class Graduation {
         const { notesFolder } = getLayout();
         const dest = path.posix.join(notesFolder, path.basename(c.rel));
         if (existsSync(path.join(this.vaultPath, dest))) throw new Error(`"${dest}" already exists`);
-        writeFileSync(file, content, 'utf-8');
+        await write(content);
         await this.ops.move(c.rel, dest);
         delete state.asked[c.rel];
         result.moved.push(noteName(c.rel));
         result.changes.push({ kind: 'moved', path: c.rel, to: dest });
-        this.log(today, 'graduate', noteName(c.rel));
+        await this.log(today, 'graduate', noteName(c.rel));
         break;
       }
       case 'ask_note': {
         const base = action.content ? removeQuestions(action.content).replace(/\s+$/, '') + '\n' : original;
         if (action.content) keepsWords(base);
         const asked = addQuestion(base, action.question);
-        writeFileSync(file, asked, 'utf-8');
+        await write(asked);
         state.asked[c.rel] = { hash: hashContent(asked), at: new Date().toISOString() };
         result.asked.push(noteName(c.rel));
         result.changes.push({ kind: 'asked', path: c.rel });
-        this.log(today, 'ask', `${noteName(c.rel)}: ${action.question}`);
+        await this.log(today, 'ask', `${noteName(c.rel)}: ${action.question}`);
         break;
       }
       case 'trash_note': {
@@ -326,22 +312,18 @@ export class Graduation {
         delete state.asked[c.rel];
         result.trashed.push(noteName(c.rel));
         result.changes.push({ kind: 'trashed', path: c.rel });
-        this.log(today, 'trash', noteName(c.rel));
+        await this.log(today, 'trash', noteName(c.rel));
         break;
       }
     }
   }
 
   /** One line per action in the agent's log, greppable: `## [2026-11-14] graduate | Maria B`. */
-  private log(date: string, kind: string, text: string): void {
+  private async log(date: string, kind: string, text: string): Promise<void> {
     try {
-      const dir = agentDir(this.vaultPath);
-      const file = path.join(dir, 'log.md');
-      if (!existsSync(file)) {
-        mkdirSync(dir, { recursive: true });
-        writeFileSync(file, '# Agent log\n\nWhat the agent did in the vault, newest last.\n\n', 'utf-8');
-      }
-      appendFileSync(file, `## [${date}] ${kind} | ${text.replace(/\s+/g, ' ')}\n`, 'utf-8');
+      const entry = `## [${date}] ${kind} | ${text.replace(/\s+/g, ' ')}\n`;
+      await this.ops.process(path.posix.join(getLayout().agentFolder, 'log.md'), content =>
+        (content || '# Agent log\n\nWhat the agent did in the vault, newest last.\n\n') + entry);
     } catch (err) {
       logger.error('Could not write the agent log', err);
     }

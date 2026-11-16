@@ -1,11 +1,11 @@
 import { describe, it, expect, vi } from 'vitest';
-import { mkdtempSync, writeFileSync, readFileSync } from 'fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { EnergyVad, rms } from '../src/voice/vad.js';
 import { multipart, base64ToArrayBuffer, type Http, type HttpRequest } from '../src/voice/http.js';
 import { SarvamStt, SarvamTts, SonioxTts } from '../src/voice/cloud.js';
-import { ensureWasm, sha256, WASM_FILE } from '../src/voice/local/runtime.js';
+import { cacheRoot, ensureWasm, sha256, WASM_FILE } from '../src/voice/local/runtime.js';
 import { VoiceSession, type AgentLike, type PlayerLike, type VoiceState, type VoiceUi } from '../src/voice/session.js';
 import type { SpeechAudio, SpeechToText, TextToSpeech } from '../src/voice/types.js';
 
@@ -103,6 +103,17 @@ describe('cloud providers', () => {
     const audio = await new SonioxTts(http, 'SK', { model: 'tts-rt-v2', voice: 'Adrian', language: 'en' }).synthesize('Hi');
     expect(calls[0].headers).toEqual({ Authorization: 'Bearer SK' });
     expect(audio.kind === 'encoded' && audio.data.byteLength).toBe(3);
+  });
+});
+
+describe('cacheRoot', () => {
+  it('moves the pre-rename ~/.obsidian-voice-agent folder to ~/.obsidian-cortana', () => {
+    const home = mkdtempSync(join(tmpdir(), 'home-'));
+    mkdirSync(join(home, '.obsidian-voice-agent', 'state'), { recursive: true });
+    writeFileSync(join(home, '.obsidian-voice-agent', 'state', 'v.json'), '{}');
+    expect(cacheRoot(home)).toBe(join(home, '.obsidian-cortana'));
+    expect(readFileSync(join(home, '.obsidian-cortana', 'state', 'v.json'), 'utf-8')).toBe('{}');
+    expect(existsSync(join(home, '.obsidian-voice-agent'))).toBe(false);
   });
 });
 

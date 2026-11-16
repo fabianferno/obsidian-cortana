@@ -6,6 +6,7 @@ import { setLayout } from '../src/config/paths.js';
 import { captureToNote } from '../src/journal/capture.js';
 import { handlePersonMention } from '../src/journal/people.js';
 import { handleLiteratureMention } from '../src/journal/literature.js';
+import { fsVaultOps } from '../src/vault/ops.js';
 
 let vault: string;
 let neurons: string;
@@ -22,8 +23,8 @@ afterEach(() => {
 });
 
 describe('captureToNote', () => {
-  it('creates a new note in the capture folder with one type tag and a Timeline line', () => {
-    const res = captureToNote(vault, { title: 'Ambition debt', noteType: 'concept', text: 'every year you delay going big compounds', date: '2026-11-14' });
+  it('creates a new note in the capture folder with one type tag and a Timeline line', async () => {
+    const res = await captureToNote(fsVaultOps(vault), vault, { title: 'Ambition debt', noteType: 'concept', text: 'every year you delay going big compounds', date: '2026-11-14' });
     expect(res.action).toBe('created');
     expect(res.filePath).toBe(path.join(vault, 'Synapses', 'Ambition debt.md'));
     expect(readFileSync(res.filePath, 'utf-8')).toBe(
@@ -31,42 +32,42 @@ describe('captureToNote', () => {
     );
   });
 
-  it('adds a dated line to an existing note found by alias, leaving the user text alone', () => {
+  it('adds a dated line to an existing note found by alias, leaving the user text alone', async () => {
     const file = path.join(neurons, 'Caleb Chanthi Raj.md');
     writeFileSync(file, '---\ntags:\n  - people\naliases:\n  - Caleb\n---\n# Caleb Chanthi Raj\n\n- Dean of LICET\n\n##### References\n');
-    const res = captureToNote(vault, { title: 'Caleb', noteType: 'people', text: 'moving to Bangalore', date: '2026-11-14' });
+    const res = await captureToNote(fsVaultOps(vault), vault, { title: 'Caleb', noteType: 'people', text: 'moving to Bangalore', date: '2026-11-14' });
     expect(res).toEqual({ action: 'appended', filePath: file });
     expect(readFileSync(file, 'utf-8')).toContain('- Dean of LICET\n\n## Timeline\n- **2026-11-14** | moving to Bangalore [Source: voice chat]\n\n##### References');
   });
 
-  it('drops an invalid type tag and unsafe file name characters', () => {
-    const res = captureToNote(vault, { title: 'a/b: c?', noteType: 'Not A Tag', text: 'x' });
+  it('drops an invalid type tag and unsafe file name characters', async () => {
+    const res = await captureToNote(fsVaultOps(vault), vault, { title: 'a/b: c?', noteType: 'Not A Tag', text: 'x' });
     expect(path.basename(res.filePath)).toBe('a b c.md');
     expect(readFileSync(res.filePath, 'utf-8').startsWith('# a b c')).toBe(true);
   });
 });
 
 describe('older people and literature actions', () => {
-  it('a person goes through capture', () => {
-    const res = handlePersonMention('Alice', 'met at conference', vault);
+  it('a person goes through capture', async () => {
+    const res = await handlePersonMention(fsVaultOps(vault), 'Alice', 'met at conference', vault);
     expect(res.action).toBe('created');
     const body = readFileSync(res.filePath, 'utf-8');
     expect(body).toContain('  - people');
     expect(body).toContain('met at conference');
   });
 
-  it('never overwrites a same-named note, whatever its tag', () => {
+  it('never overwrites a same-named note, whatever its tag', async () => {
     const file = path.join(neurons, 'Rust.md');
     writeFileSync(file, '---\ntags: [literature]\n---\n\n# Rust\n\nImportant existing content that must survive.\n');
-    const res = handlePersonMention('Rust', 'someone named Rust', vault);
+    const res = await handlePersonMention(fsVaultOps(vault), 'Rust', 'someone named Rust', vault);
     expect(res.action).toBe('appended');
     const body = readFileSync(file, 'utf-8');
     expect(body).toContain('Important existing content that must survive.');
     expect(body).toContain('someone named Rust');
   });
 
-  it('literature records the kind and source', () => {
-    const res = handleLiteratureMention('Dune', 'book', 'Herbert', 'great read', vault);
+  it('literature records the kind and source', async () => {
+    const res = await handleLiteratureMention(fsVaultOps(vault), 'Dune', 'book', 'Herbert', 'great read', vault);
     const body = readFileSync(res.filePath, 'utf-8');
     expect(body).toContain('  - literature');
     expect(body).toContain('great read (book, Herbert)');

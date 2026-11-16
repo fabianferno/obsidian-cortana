@@ -1,11 +1,13 @@
-// config/editor.ts — the single validated write path for the six agent config files.
+// config/editor.ts - the single validated write path for the agent config files.
 //
-// The config files live in the VAULT repo under agent/, not in this code repo.
-// Callers pass agentDir = path.join(resolveVaultPath(), 'agent').
+// The config files live in the vault's agent folder, not in this code repo. The
+// write goes through VaultOps (Obsidian's vault.process in the plugin).
 
-import { readFileSync, writeFileSync } from 'fs';
+import { existsSync } from 'fs';
 import path from 'path';
 import { parseUserMeta } from './loader.js';
+import { agentDir, getLayout } from './paths.js';
+import type { VaultOps } from '../vault/ops.js';
 import type { ConfigEdit, ConfigFile, EditResult, UserMeta } from './types.js';
 
 export const CONFIG_FILES: readonly ConfigFile[] = [
@@ -145,26 +147,29 @@ function guardUserMeta(before: string, after: string, edit: ConfigEdit): string 
 }
 
 /** Read, edit, validate, write. The only function that writes a config file. */
-export function applyConfigEdit(
-  agentDir: string,
+export async function applyConfigEdit(
+  ops: VaultOps,
+  vaultPath: string,
   edit: ConfigEdit,
-): { ok: true } | { ok: false; reason: string } {
+): Promise<{ ok: true } | { ok: false; reason: string }> {
   if (!CONFIG_FILES.includes(edit.file)) {
     return { ok: false, reason: `"${edit.file}" is not an agent config file` };
   }
-
-  let current: string;
-  try {
-    current = readFileSync(path.join(agentDir, edit.file), 'utf-8');
-  } catch {
+  if (!existsSync(path.join(agentDir(vaultPath), edit.file))) {
     return { ok: false, reason: `cannot read ${edit.file}` };
   }
 
-  const result = applyEditToContent(current, edit);
-  if (!result.ok) return { ok: false, reason: result.reason };
-
-  writeFileSync(path.join(agentDir, edit.file), result.content, 'utf-8');
-  return { ok: true };
+  let outcome: { ok: true } | { ok: false; reason: string } = { ok: true };
+  await ops.process(path.posix.join(getLayout().agentFolder, edit.file), current => {
+    const result = applyEditToContent(current, edit);
+    if (!result.ok) {
+      outcome = { ok: false, reason: result.reason };
+      return current;
+    }
+    outcome = { ok: true };
+    return result.content;
+  });
+  return outcome;
 }
 
 /** Human-readable one-liner for the permission prompt and the confirmation reply. */

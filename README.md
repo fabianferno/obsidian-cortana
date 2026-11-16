@@ -1,6 +1,6 @@
-# Voice Agent for Obsidian
+# Cortana for Obsidian
 
-Talk to your vault. Voice Agent is an Obsidian plugin that turns the coding agent already on
+Talk to your vault. Cortana is an Obsidian plugin that turns the coding agent already on
 your computer (Claude Code, Codex or Antigravity) into a spoken assistant for your notes. Ask
 it what to work on, have it move cards on your kanban board, look things up in your notes, or
 let it brief you in the morning and wind you down in the evening.
@@ -22,7 +22,7 @@ let it brief you in the morning and wind you down in the evening.
   vault, and every move keeps your links working.
 
 Desktop only (macOS, Windows, Linux). Early release (0.2.0): expect rough edges, and please
-[open an issue](https://github.com/fabianferno/obsidian-voice-agent/issues) when something
+[open an issue](https://github.com/fabianferno/obsidian-cortana/issues) when something
 breaks.
 
 ## How it works
@@ -61,7 +61,7 @@ with permission rules, not just instructions.
 
 ## Install
 
-Voice Agent is not in the community plugin list yet. Until it is, install it one of these
+Cortana is not in the community plugin list yet. Until it is, install it one of these
 ways:
 
 **With BRAT (gets updates automatically)**
@@ -69,27 +69,27 @@ ways:
 1. Install and enable [BRAT](https://github.com/TfTHacker/obsidian42-brat) from Settings,
    Community plugins.
 2. Run the command **BRAT: Add a beta plugin for testing** and paste
-   `fabianferno/obsidian-voice-agent`.
-3. Enable **Voice Agent** in Settings, Community plugins.
+   `fabianferno/obsidian-cortana`.
+3. Enable **Cortana** in Settings, Community plugins.
 
 **By hand**
 
 1. Download `main.js`, `manifest.json` and `styles.css` from the
-   [latest release](https://github.com/fabianferno/obsidian-voice-agent/releases/latest).
-2. Put them in `<your vault>/.obsidian/plugins/voice-agent/` (create the folder).
-3. Reload Obsidian and enable **Voice Agent** in Settings, Community plugins.
+   [latest release](https://github.com/fabianferno/obsidian-cortana/releases/latest).
+2. Put them in `<your vault>/.obsidian/plugins/cortana/` (create the folder).
+3. Reload Obsidian and enable **Cortana** in Settings, Community plugins.
 
 ## First run
 
-1. Open **Settings, Voice Agent**. Pick your engine and press **Check** to confirm Obsidian can
+1. Open **Settings, Cortana**. Pick your engine and press **Check** to confirm Obsidian can
    find it. If it cannot (common when Obsidian is opened from the Dock), paste the full path,
    for example the output of `which claude` in a terminal.
 2. Set your **Vault layout**: where your kanban board is, your quick-capture folder, the folder
    finished notes move to, and your daily notes. The defaults are `Kanban.md`, `Inbox/`,
    `Notes/` and `Daily/`; change them to match your vault. If the board path is wrong the
    plugin tells you, instead of reporting an empty board.
-3. Open the panel with the microphone ribbon icon, or the command **Voice Agent: Open panel**.
-4. Bind a hotkey to **Voice Agent: Talk (start or stop listening)** in Settings, Hotkeys.
+3. Open the panel with the microphone ribbon icon, or the command **Cortana: Open panel**.
+4. Bind a hotkey to **Cortana: Talk (start or stop listening)** in Settings, Hotkeys.
 
 On first run the plugin creates the agent's files in the agent folder (`agent/` by default):
 `soul.md`, `identity.md`, `user.md`, `goals.md` and `memory.md`. Edit them to shape the agent.
@@ -179,7 +179,7 @@ Keys are stored in Obsidian's secret storage, not in the plugin's settings file.
 
 ## Network use
 
-Voice Agent has no telemetry, no ads and no account of its own. It connects to these
+Cortana has no telemetry, no ads and no account of its own. It connects to these
 services, and only for these reasons:
 
 | Service | When | What is sent |
@@ -196,10 +196,10 @@ With local speech recognition and the system voice, audio never leaves your comp
 
 ## Files outside your vault
 
-- `~/.obsidian-voice-agent/state/` - the agent's working state per vault: focus sessions,
+- `~/.obsidian-cortana/state/` - the agent's working state per vault: focus sessions,
   the last 200 messages, check-in times. Kept outside the vault so sync and git plugins don't
   commit it. Delete the folder to reset the agent.
-- `~/.obsidian-voice-agent/runtime/` - the downloaded ONNX runtime for local Whisper.
+- `~/.obsidian-cortana/runtime/` - the downloaded ONNX runtime for local Whisper.
 - Obsidian's browser cache - the downloaded Whisper model.
 - The engine CLI keeps its own conversation history where it always does (for example
   `~/.claude/` for Claude Code).
@@ -220,7 +220,7 @@ pnpm test                 # unit tests (vitest)
 pnpm lint                 # Obsidian's community review lint rules
 pnpm typecheck
 pnpm build                # production main.js
-OBSIDIAN_PLUGIN_DIR="/path/to/vault/.obsidian/plugins/voice-agent" pnpm dev   # watch + copy into a vault
+OBSIDIAN_PLUGIN_DIR="/path/to/vault/.obsidian/plugins/cortana" pnpm dev   # watch + copy into a vault
 ```
 
 Layout:

@@ -4,6 +4,7 @@ import { join } from 'path';
 import { tmpdir } from 'os';
 import { mutateKanban, ensureCardIds, updateCardDeadlineById, updateCardDeadlineByTitle, deleteCardById, autoMoveCompletedToDone, clearColumns, countColumnCards } from '../src/vault/writer.js';
 import { parseInboxKanban } from '../src/vault/parser.js';
+import { fsVaultOps } from '../src/vault/ops.js';
 
 function inboxPath(vaultPath: string) {
   return join(vaultPath, 'Kanban.md');
@@ -17,9 +18,9 @@ function makeVault(boardBody: string): string {
 }
 
 describe('card ids', () => {
-  it('ensureCardIds appends ^id to lines without one and is idempotent', () => {
+  it('ensureCardIds appends ^id to lines without one and is idempotent', async () => {
     const vault = makeVault(['## Doing', '- [ ] Task A', '- [ ] Task B ^keep01'].join('\n'));
-    const minted = ensureCardIds(vault);
+    const minted = await ensureCardIds(fsVaultOps(vault), vault);
     expect(minted.length).toBe(1);
 
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
@@ -27,18 +28,18 @@ describe('card ids', () => {
     expect(doing[0].id).toMatch(/^[a-z0-9]{6}$/);
     expect(doing[1].id).toBe('keep01');
 
-    expect(ensureCardIds(vault).length).toBe(0);
+    expect((await ensureCardIds(fsVaultOps(vault), vault)).length).toBe(0);
   });
 
-  it('mutateKanban add mints an id for the new card', () => {
+  it('mutateKanban add mints an id for the new card', async () => {
     const vault = makeVault(['## Backlog', '', '## Doing', '', '## Done', ''].join('\n'));
-    mutateKanban(vault, [{ type: 'add', task: 'Fresh task', toColumn: 'Backlog' }]);
+    await mutateKanban(fsVaultOps(vault), vault, [{ type: 'add', task: 'Fresh task', toColumn: 'Backlog' }]);
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
     expect(board.columns['Backlog'][0].text).toBe('Fresh task');
     expect(board.columns['Backlog'][0].id).toMatch(/^[a-z0-9]{6}$/);
   });
 
-  it('mutateKanban move matches a card by plain title when the card carries a due date', () => {
+  it('mutateKanban move matches a card by plain title when the card carries a due date', async () => {
     // A card with an Obsidian Kanban date annotation must still be movable by
     // its human title. Voice/text callers say "move Meet with mountroof to
     // Done", never "... @{2026-07-16}". Regression: the due-date stamp made the
@@ -46,68 +47,68 @@ describe('card ids', () => {
     const vault = makeVault([
       '## To Do', '- [ ] Meet with mountroof @{2026-07-16} ^f009ad', '', '## Done', '',
     ].join('\n'));
-    mutateKanban(vault, [{ type: 'move', task: 'Meet with mountroof', fromColumn: 'To Do', toColumn: 'Done' }]);
+    await mutateKanban(fsVaultOps(vault), vault, [{ type: 'move', task: 'Meet with mountroof', fromColumn: 'To Do', toColumn: 'Done' }]);
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
     expect(board.columns['To Do'].some(t => t.text.includes('Meet with mountroof'))).toBe(false);
     expect(board.columns['Done'].some(t => t.text.includes('Meet with mountroof'))).toBe(true);
   });
 
-  it('updateCardDeadlineById rewrites @{date} for the matching id only', () => {
+  it('updateCardDeadlineById rewrites @{date} for the matching id only', async () => {
     const vault = makeVault(['## To Do', '- [ ] A @{2026-07-20} ^aaa111', '- [ ] B @{2026-07-20} ^bbb222'].join('\n'));
-    updateCardDeadlineById(vault, 'aaa111', '2026-07-25', null);
+    await updateCardDeadlineById(fsVaultOps(vault), vault, 'aaa111', '2026-07-25', null);
     const md = readFileSync(inboxPath(vault), 'utf-8');
     expect(md).toContain('A @{2026-07-25} ^aaa111');
     expect(md).toContain('B @{2026-07-20} ^bbb222');
   });
 
-  it('updateCardDeadlineById adds a deadline to a card that had none', () => {
+  it('updateCardDeadlineById adds a deadline to a card that had none', async () => {
     const vault = makeVault(['## To Do', '- [ ] A ^aaa111'].join('\n'));
-    updateCardDeadlineById(vault, 'aaa111', '2026-07-25', '09:00');
+    await updateCardDeadlineById(fsVaultOps(vault), vault, 'aaa111', '2026-07-25', '09:00');
     const md = readFileSync(inboxPath(vault), 'utf-8');
     expect(md).toContain('A @{2026-07-25} @@{09:00} ^aaa111');
   });
 
-  it('updateCardDeadlineByTitle rewrites the @{date} of the card matching a title', () => {
+  it('updateCardDeadlineByTitle rewrites the @{date} of the card matching a title', async () => {
     // The exact incident: a reschedule must move the board card, not just the calendar.
     const vault = makeVault(['## To Do', '- [ ] Collect cash from Syed Bawkher @{2026-07-13} ^895836'].join('\n'));
-    const moved = updateCardDeadlineByTitle(vault, 'Collect cash from Syed Bawkher', '2026-07-16');
+    const moved = await updateCardDeadlineByTitle(fsVaultOps(vault), vault, 'Collect cash from Syed Bawkher', '2026-07-16');
     expect(moved).toBe(true);
     const md = readFileSync(inboxPath(vault), 'utf-8');
     expect(md).toContain('Collect cash from Syed Bawkher @{2026-07-16} ^895836');
     expect(md).not.toContain('2026-07-13');
   });
 
-  it('updateCardDeadlineByTitle prefers a same-titled card that already has a date over a dateless twin', () => {
+  it('updateCardDeadlineByTitle prefers a same-titled card that already has a date over a dateless twin', async () => {
     const vault = makeVault([
       '## To Do',
       '- [ ] Collect cash from Syed Bawkher @{2026-07-13} ^895836',
       '- [ ] Collect cash from Syed Bawkher ^a03f30',
     ].join('\n'));
-    updateCardDeadlineByTitle(vault, 'Collect cash from Syed Bawkher', '2026-07-16');
+    await updateCardDeadlineByTitle(fsVaultOps(vault), vault, 'Collect cash from Syed Bawkher', '2026-07-16');
     const md = readFileSync(inboxPath(vault), 'utf-8');
     // The dated twin moves; the dateless one is left untouched (no phantom date stamped).
     expect(md).toContain('Collect cash from Syed Bawkher @{2026-07-16} ^895836');
     expect(md).toContain('- [ ] Collect cash from Syed Bawkher ^a03f30');
   });
 
-  it('updateCardDeadlineByTitle adds a date to a card that had none when no dated twin exists', () => {
+  it('updateCardDeadlineByTitle adds a date to a card that had none when no dated twin exists', async () => {
     const vault = makeVault(['## To Do', '- [ ] Ship the invoice ^abc123'].join('\n'));
-    const moved = updateCardDeadlineByTitle(vault, 'Ship the invoice', '2026-07-16');
+    const moved = await updateCardDeadlineByTitle(fsVaultOps(vault), vault, 'Ship the invoice', '2026-07-16');
     expect(moved).toBe(true);
     const md = readFileSync(inboxPath(vault), 'utf-8');
     expect(md).toContain('Ship the invoice @{2026-07-16} ^abc123');
   });
 
-  it('updateCardDeadlineByTitle returns false when no card matches (caller must not claim a move)', () => {
+  it('updateCardDeadlineByTitle returns false when no card matches (caller must not claim a move)', async () => {
     const vault = makeVault(['## To Do', '- [ ] Something else ^zzz999'].join('\n'));
-    const moved = updateCardDeadlineByTitle(vault, 'Collect cash from Syed Bawkher', '2026-07-16');
+    const moved = await updateCardDeadlineByTitle(fsVaultOps(vault), vault, 'Collect cash from Syed Bawkher', '2026-07-16');
     expect(moved).toBe(false);
     expect(readFileSync(inboxPath(vault), 'utf-8')).not.toContain('2026-07-16');
   });
 
-  it('deleteCardById removes only the matching line', () => {
+  it('deleteCardById removes only the matching line', async () => {
     const vault = makeVault(['## To Do', '- [ ] A ^aaa111', '- [ ] B ^bbb222'].join('\n'));
-    deleteCardById(vault, 'aaa111');
+    await deleteCardById(fsVaultOps(vault), vault, 'aaa111');
     const md = readFileSync(inboxPath(vault), 'utf-8');
     expect(md).not.toContain('^aaa111');
     expect(md).toContain('B ^bbb222');
@@ -132,8 +133,8 @@ describe('mutateKanban', () => {
     ].join('\n'));
   });
 
-  it('does not add the same task twice to a column', () => {
-    mutateKanban(vaultPath, [
+  it('does not add the same task twice to a column', async () => {
+    await mutateKanban(fsVaultOps(vaultPath), vaultPath, [
       { type: 'add', task: 'Rework DrawFi front end for demo', toColumn: 'Doing' },
       { type: 'add', task: 'Rework DrawFi front end for demo', toColumn: 'Doing' },
     ]);
@@ -142,7 +143,7 @@ describe('mutateKanban', () => {
     expect(matches?.length).toBe(1);
   });
 
-  it('moves the task even when the model supplies the wrong `from` column', () => {
+  it('moves the task even when the model supplies the wrong `from` column', async () => {
     // "Meet Lokesh" is really in To Do; the model claims it is in Doing.
     writeFileSync(inboxPath(vaultPath), [
       '## To Do',
@@ -154,7 +155,7 @@ describe('mutateKanban', () => {
       '',
     ].join('\n'));
 
-    const changed = mutateKanban(vaultPath, [
+    const changed = await mutateKanban(fsVaultOps(vaultPath), vaultPath, [
       { type: 'move', task: 'Meet Lokesh', fromColumn: 'Doing', toColumn: 'Backlog' },
     ]);
 
@@ -165,14 +166,14 @@ describe('mutateKanban', () => {
     expect(content).toMatch(/## Backlog[\s\S]*Meet Lokesh/);
   });
 
-  it('returns false when the task is nowhere on the board (no phantom write)', () => {
-    const changed = mutateKanban(vaultPath, [
+  it('returns false when the task is nowhere on the board (no phantom write)', async () => {
+    const changed = await mutateKanban(fsVaultOps(vaultPath), vaultPath, [
       { type: 'move', task: 'Task that does not exist', fromColumn: 'To Do', toColumn: 'Done' },
     ]);
     expect(changed).toBe(false);
   });
 
-  it('completes a task by moving it to Done regardless of claimed source', () => {
+  it('completes a task by moving it to Done regardless of claimed source', async () => {
     writeFileSync(inboxPath(vaultPath), [
       '## To Do',
       '- [ ] Submit Finvoice ^c6c206',
@@ -181,7 +182,7 @@ describe('mutateKanban', () => {
       '',
     ].join('\n'));
 
-    const changed = mutateKanban(vaultPath, [
+    const changed = await mutateKanban(fsVaultOps(vaultPath), vaultPath, [
       { type: 'move', task: 'Submit Finvoice', fromColumn: 'To Do', toColumn: 'Done' },
     ]);
     expect(changed).toBe(true);
@@ -189,7 +190,7 @@ describe('mutateKanban', () => {
     expect(content).toMatch(/## Done[\s\S]*Submit Finvoice/);
   });
 
-  it('moves a task whose raw line contains wikilink brackets when given the cleaned text', () => {
+  it('moves a task whose raw line contains wikilink brackets when given the cleaned text', async () => {
     writeFileSync(inboxPath(vaultPath), [
       '## Backlog',
       '',
@@ -200,7 +201,7 @@ describe('mutateKanban', () => {
       '',
     ].join('\n'));
 
-    mutateKanban(vaultPath, [
+    await mutateKanban(fsVaultOps(vaultPath), vaultPath, [
       { type: 'move', task: 'Create plans for Stateless', fromColumn: 'Doing', toColumn: 'Backlog' },
     ]);
 
@@ -211,7 +212,7 @@ describe('mutateKanban', () => {
 });
 
 describe('autoMoveCompletedToDone', () => {
-  it('moves a checked card out of To Do into Done, keeping its id and annotations verbatim', () => {
+  it('moves a checked card out of To Do into Done, keeping its id and annotations verbatim', async () => {
     const vault = makeVault([
       '## To Do',
       '- [x] Submit Stablecoin hackathon @{2026-07-10} ^abc123',
@@ -224,7 +225,7 @@ describe('autoMoveCompletedToDone', () => {
       '',
     ].join('\n'));
 
-    const moved = autoMoveCompletedToDone(vault);
+    const moved = await autoMoveCompletedToDone(fsVaultOps(vault), vault);
     expect(moved).toEqual(['Submit Stablecoin hackathon @{2026-07-10}']);
 
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
@@ -237,7 +238,7 @@ describe('autoMoveCompletedToDone', () => {
     expect(submitted.dueDate).toBe('2026-07-10');
   });
 
-  it('lifts completed cards from every non-terminal column, leaving Done/Archive untouched', () => {
+  it('lifts completed cards from every non-terminal column, leaving Done/Archive untouched', async () => {
     const vault = makeVault([
       '## Backlog',
       '- [x] Backlog done ^b1',
@@ -252,7 +253,7 @@ describe('autoMoveCompletedToDone', () => {
       '- [x] Already archived ^a1',
     ].join('\n'));
 
-    const moved = autoMoveCompletedToDone(vault);
+    const moved = await autoMoveCompletedToDone(fsVaultOps(vault), vault);
     expect(moved.sort()).toEqual(['Backlog done', 'Doing done', 'Todo done']);
 
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
@@ -264,7 +265,7 @@ describe('autoMoveCompletedToDone', () => {
     expect(board.columns['Archive'].map(t => t.text)).toEqual(['Already archived']);
   });
 
-  it('is a no-op when nothing is checked outside terminal columns', () => {
+  it('is a no-op when nothing is checked outside terminal columns', async () => {
     const body = [
       '## To Do',
       '- [ ] Open task ^o1',
@@ -274,19 +275,19 @@ describe('autoMoveCompletedToDone', () => {
       '',
     ].join('\n');
     const vault = makeVault(body);
-    const moved = autoMoveCompletedToDone(vault);
+    const moved = await autoMoveCompletedToDone(fsVaultOps(vault), vault);
     expect(moved).toEqual([]);
     expect(readFileSync(inboxPath(vault), 'utf-8')).toBe(body);
   });
 
-  it('flushes to the end of Done when Done is the last column', () => {
+  it('flushes to the end of Done when Done is the last column', async () => {
     const vault = makeVault([
       '## To Do',
       '- [x] Finished ^f1',
       '## Done',
       '- [ ] Existing ^e1',
     ].join('\n'));
-    autoMoveCompletedToDone(vault);
+    await autoMoveCompletedToDone(fsVaultOps(vault), vault);
     const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
     expect(board.columns['Done'].map(t => t.text)).toEqual(['Existing', 'Finished']);
     expect(board.columns['To Do']).toEqual([]);
@@ -307,16 +308,16 @@ describe('clearColumns / countColumnCards', () => {
     '- [ ] Archived open ^a2',
   ].join('\n');
 
-  it('countColumnCards counts cards in the named columns only', () => {
+  it('countColumnCards counts cards in the named columns only', async () => {
     const vault = makeVault(board);
     expect(countColumnCards(vault, ['Done', 'Archive'])).toBe(4);
     expect(countColumnCards(vault, ['Done'])).toBe(2);
     expect(countColumnCards(vault, ['To Do'])).toBe(1);
   });
 
-  it('clearColumns deletes every card under the named columns, keeping headers and other columns', () => {
+  it('clearColumns deletes every card under the named columns, keeping headers and other columns', async () => {
     const vault = makeVault(board);
-    const removed = clearColumns(vault, ['Done', 'Archive']);
+    const removed = await clearColumns(fsVaultOps(vault), vault, ['Done', 'Archive']);
     expect(removed).toBe(4);
 
     const parsed = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
@@ -332,10 +333,10 @@ describe('clearColumns / countColumnCards', () => {
     expect(md).not.toContain('^a2');
   });
 
-  it('clearColumns is a no-op returning 0 when the columns are already empty', () => {
+  it('clearColumns is a no-op returning 0 when the columns are already empty', async () => {
     const body = ['## To Do', '- [ ] Keep me ^k1', '', '## Done', '', '## Archive', ''].join('\n');
     const vault = makeVault(body);
-    expect(clearColumns(vault, ['Done', 'Archive'])).toBe(0);
+    expect(await clearColumns(fsVaultOps(vault), vault, ['Done', 'Archive'])).toBe(0);
     expect(readFileSync(inboxPath(vault), 'utf-8')).toBe(body);
   });
 });

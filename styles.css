@@ -1,13 +1,13 @@
-/* Voice Agent panel. Uses Obsidian theme variables so it fits any theme. */
+/* Cortana panel. Uses Obsidian theme variables so it fits any theme. */
 
-.va-root {
+.cortana-root {
   display: flex;
   flex-direction: column;
   height: 100%;
   padding: 0 !important;
 }
 
-.va-header {
+.cortana-header {
   display: flex;
   align-items: center;
   gap: var(--size-4-2);
@@ -15,7 +15,7 @@
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.va-title {
+.cortana-title {
   font-weight: var(--font-semibold);
   flex: 1;
   overflow: hidden;
@@ -23,29 +23,106 @@
   white-space: nowrap;
 }
 
-.va-state {
+/* Cortana's circle: a thick, darker outer ring with a bright thinner ring just
+   inside it. Big on the empty panel, small in the top bar once the chat starts.
+   Sizes scale from --orb; the colour follows the theme accent. */
+.cortana-orb,
+.cortana-orb:hover {
+  --orb: 120px;
+  position: relative;
+  flex: none;
+  width: var(--orb);
+  height: var(--orb);
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.3s ease;
+}
+.cortana-orb.is-mini { --orb: 22px; }
+.cortana-root.is-empty .cortana-orb.is-mini { display: none; }
+.cortana-orb:hover,
+.cortana-orb.is-on,
+.cortana-orb[data-state="thinking"],
+.cortana-orb[data-state="transcribing"],
+.cortana-orb[data-state="speaking"] { opacity: 1; }
+.cortana-orb:focus-visible { box-shadow: 0 0 0 2px var(--background-modifier-border-focus); }
+
+.cortana-orb-outer,
+.cortana-orb-inner {
+  position: absolute;
+  border-radius: 50%;
+  border-style: solid;
+}
+.cortana-orb-outer {
+  inset: 0;
+  border-width: calc(var(--orb) * 0.12);
+  border-color: rgba(var(--interactive-accent-rgb), 0.42);
+}
+.cortana-orb-inner {
+  inset: calc(var(--orb) * 0.12);
+  border-width: calc(var(--orb) * 0.075);
+  border-color: var(--interactive-accent);
+}
+.cortana-orb.is-on .cortana-orb-inner { box-shadow: 0 0 calc(var(--orb) * 0.12) rgba(var(--interactive-accent-rgb), 0.5); }
+.cortana-orb[data-state="thinking"] .cortana-orb-inner,
+.cortana-orb[data-state="transcribing"] .cortana-orb-inner { border-top-color: transparent; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Mic off: a slow breath. Listening: a quicker one. */
+  .cortana-orb .cortana-orb-inner { animation: cortana-breathe 5s ease-in-out infinite; }
+  .cortana-orb.is-on .cortana-orb-inner { animation-duration: 2.4s; }
+  /* Hearing you: the outer ring ripples outward. */
+  .cortana-orb[data-state="hearing"] .cortana-orb-outer { animation: cortana-ripple 0.9s ease-out infinite; }
+  /* Thinking: the bright ring spins with a gap in it. */
+  .cortana-orb[data-state="thinking"] .cortana-orb-inner,
+  .cortana-orb[data-state="transcribing"] .cortana-orb-inner { animation: cortana-spin 1s linear infinite; }
+  /* Speaking: the two rings pulse out of step. */
+  .cortana-orb[data-state="speaking"] .cortana-orb-inner { animation: cortana-talk 0.6s ease-in-out infinite; }
+  .cortana-orb[data-state="speaking"] .cortana-orb-outer { animation: cortana-talk 0.6s ease-in-out -0.3s infinite; }
+}
+
+@keyframes cortana-breathe { 50% { transform: scale(0.94); } }
+@keyframes cortana-spin { to { transform: rotate(360deg); } }
+@keyframes cortana-talk { 50% { transform: scale(1.06); } }
+@keyframes cortana-ripple {
+  0% { box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0.5); }
+  100% { box-shadow: 0 0 0 calc(var(--orb) * 0.18) rgba(var(--interactive-accent-rgb), 0); }
+}
+
+.cortana-greeting {
+  margin: var(--size-4-4) 0 var(--size-4-2);
+  font-size: 1.6em;
+  font-weight: 300;
+  color: var(--interactive-accent);
+}
+
+.cortana-state {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   padding: 2px 8px;
   border-radius: var(--radius-l);
   background: var(--background-modifier-hover);
 }
-.va-state[data-state="listening"],
-.va-state[data-state="hearing"] { color: var(--text-on-accent); background: var(--interactive-accent); }
-.va-state[data-state="thinking"],
-.va-state[data-state="transcribing"] { color: var(--text-normal); background: var(--background-modifier-active-hover); }
-.va-state[data-state="speaking"] { color: var(--text-on-accent); background: var(--color-green); }
+.cortana-state[data-state="listening"],
+.cortana-state[data-state="hearing"] { color: var(--text-on-accent); background: var(--interactive-accent); }
+.cortana-state[data-state="thinking"],
+.cortana-state[data-state="transcribing"] { color: var(--text-normal); background: var(--background-modifier-active-hover); }
+.cortana-state[data-state="speaking"] { color: var(--text-on-accent); background: var(--color-green); }
 
-.va-notice {
+.cortana-notice {
   display: none;
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   padding: var(--size-4-1) var(--size-4-3);
   border-bottom: 1px solid var(--background-modifier-border);
 }
-.va-notice.is-visible { display: block; }
+.cortana-notice.is-visible { display: block; }
 
-.va-list {
+.cortana-list {
   flex: 1;
   overflow-y: auto;
   padding: var(--size-4-3);
@@ -55,57 +132,60 @@
   user-select: text;
 }
 
-.va-empty {
+.cortana-empty {
   margin: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   text-align: center;
   color: var(--text-muted);
-  max-width: 260px;
+  max-width: 280px;
 }
-.va-empty-hint { font-size: var(--font-ui-smaller); margin-top: var(--size-4-2); color: var(--text-faint); }
+.cortana-empty-hint { font-size: var(--font-ui-smaller); margin-top: var(--size-4-2); color: var(--text-faint); }
 
-.va-msg {
+.cortana-msg {
   max-width: 92%;
   padding: var(--size-4-2) var(--size-4-3);
   border-radius: var(--radius-m);
   line-height: 1.45;
 }
-.va-text { white-space: pre-wrap; word-break: break-word; }
+.cortana-text { white-space: pre-wrap; word-break: break-word; }
 
-.va-user {
+.cortana-user {
   align-self: flex-end;
   background: var(--interactive-accent);
   color: var(--text-on-accent);
 }
 
-.va-agent {
+.cortana-agent {
   align-self: flex-start;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
 }
-.va-agent.va-proactive { border-left: 3px solid var(--interactive-accent); }
+.cortana-agent.cortana-proactive { border-left: 3px solid var(--interactive-accent); }
 
-.va-error {
+.cortana-error {
   align-self: stretch;
   font-size: var(--font-ui-smaller);
   color: var(--text-error);
   background: rgba(var(--color-red-rgb), 0.08);
 }
 
-.va-label {
+.cortana-label {
   font-size: var(--font-ui-smaller);
   font-weight: var(--font-semibold);
   color: var(--text-accent);
   margin-bottom: 2px;
 }
 
-.va-status, .va-typing {
+.cortana-status, .cortana-typing {
   font-size: var(--font-ui-smaller);
   color: var(--text-muted);
   margin-top: 2px;
 }
-.va-typing { animation: va-pulse 1.4s ease-in-out infinite; }
-.va-changes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
-.va-change {
+.cortana-typing { animation: cortana-pulse 1.4s ease-in-out infinite; }
+.cortana-changes { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.cortana-change {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -116,18 +196,18 @@
   font-size: var(--font-ui-smaller);
   text-decoration: none;
 }
-a.va-change { cursor: pointer; }
-a.va-change:hover { color: var(--text-normal); background: var(--background-modifier-active-hover); }
-.va-change-icon { display: inline-flex; }
-.va-change-icon svg { width: 12px; height: 12px; }
-.va-change-created .va-change-icon, .va-change-moved .va-change-icon { color: var(--color-green); }
-.va-change-asked .va-change-icon { color: var(--color-yellow); }
-.va-change-trashed .va-change-icon, .va-change-deleted .va-change-icon { color: var(--text-error); }
-.va-error-text { font-size: var(--font-ui-smaller); color: var(--text-error); margin-top: 4px; white-space: pre-wrap; }
+a.cortana-change { cursor: pointer; }
+a.cortana-change:hover { color: var(--text-normal); background: var(--background-modifier-active-hover); }
+.cortana-change-icon { display: inline-flex; }
+.cortana-change-icon svg { width: 12px; height: 12px; }
+.cortana-change-created .cortana-change-icon, .cortana-change-moved .cortana-change-icon { color: var(--color-green); }
+.cortana-change-asked .cortana-change-icon { color: var(--color-yellow); }
+.cortana-change-trashed .cortana-change-icon, .cortana-change-deleted .cortana-change-icon { color: var(--text-error); }
+.cortana-error-text { font-size: var(--font-ui-smaller); color: var(--text-error); margin-top: 4px; white-space: pre-wrap; }
 
-@keyframes va-pulse { 50% { opacity: 0.45; } }
+@keyframes cortana-pulse { 50% { opacity: 0.45; } }
 
-.va-footer {
+.cortana-footer {
   display: flex;
   align-items: flex-end;
   gap: var(--size-4-2);
@@ -135,7 +215,7 @@ a.va-change:hover { color: var(--text-normal); background: var(--background-modi
   border-top: 1px solid var(--background-modifier-border);
 }
 
-.va-mic {
+.cortana-mic {
   flex: none;
   width: 40px;
   height: 40px;
@@ -146,20 +226,20 @@ a.va-change:hover { color: var(--text-normal); background: var(--background-modi
   justify-content: center;
   cursor: pointer;
 }
-.va-mic.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
-.va-mic.is-on[data-state="hearing"] { box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb), 0.3); }
+.cortana-mic.is-on { background: var(--interactive-accent); color: var(--text-on-accent); }
+.cortana-mic.is-on[data-state="hearing"] { box-shadow: 0 0 0 4px rgba(var(--interactive-accent-rgb), 0.3); }
 @media (prefers-reduced-motion: no-preference) {
-  .va-mic.is-on[data-state="hearing"] { animation: va-ring 1.2s ease-out infinite; }
+  .cortana-mic.is-on[data-state="hearing"] { animation: cortana-ring 1.2s ease-out infinite; }
 }
-@keyframes va-ring {
+@keyframes cortana-ring {
   0% { box-shadow: 0 0 0 0 rgba(var(--interactive-accent-rgb), 0.45); }
   100% { box-shadow: 0 0 0 10px rgba(var(--interactive-accent-rgb), 0); }
 }
 
-.va-stop { display: none; flex: none; align-self: center; }
-.va-stop.is-visible { display: flex; }
+.cortana-stop { display: none; flex: none; align-self: center; }
+.cortana-stop.is-visible { display: flex; }
 
-.va-input {
+.cortana-input {
   flex: 1;
   resize: none;
   min-height: 40px;

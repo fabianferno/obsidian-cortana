@@ -12,7 +12,9 @@ import path from 'path';
 import { getLayout } from '../config/paths.js';
 import { parseFrontmatter } from './parser.js';
 
-export const QUESTION_HEADER = '> [!question] Voice Agent';
+export const QUESTION_HEADER = '> [!question] Cortana';
+/** Written before the rename to Cortana; still recognized. */
+const LEGACY_QUESTION_HEADER = '> [!question] Voice Agent';
 const REFERENCES_RE = /^#####\s+References\s*$/;
 const TIMELINE_RE = /^##\s+Timeline\s*$/;
 
@@ -100,7 +102,8 @@ export function appendTimeline(content: string, line: string): string {
 function questionBlocks(lines: string[]): Array<[number, number]> {
   const blocks: Array<[number, number]> = [];
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].trim() !== QUESTION_HEADER) continue;
+    const line = lines[i].trim();
+    if (line !== QUESTION_HEADER && line !== LEGACY_QUESTION_HEADER) continue;
     let end = i + 1;
     while (end < lines.length && lines[end].startsWith('>')) end++;
     blocks.push([i, end]);

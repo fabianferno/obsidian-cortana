@@ -33,14 +33,13 @@ import { checkGuard } from '../focus/guard.js';
 import { parseTimeEstimate } from '../focus/estimator.js';
 import { parseInboxKanban } from '../vault/parser.js';
 import { autoMoveCompletedToDone, clearColumns, countColumnCards, ensureCardIds, mutateKanban } from '../vault/writer.js';
-import { Graduation, countWaiting, fsVaultOps, loadGraduationState, saveGraduationState, type GraduationResult, type VaultOps } from './graduation.js';
+import { Graduation, countWaiting, loadGraduationState, saveGraduationState, type GraduationResult } from './graduation.js';
+import { fsVaultOps, type VaultOps } from '../vault/ops.js';
 import { createLogger } from '../utils/logger.js';
 
 const logger = createLogger('agent');
 
 export interface AgentSettings {
-  /** What the engine calls the agent. The spoken persona name lives in identity.md. */
-  agentName: string;
   checkpointTimes: CheckpointTimes;
   /** A short greeting when Obsidian opens (at most every 3 hours). */
   greetOnOpen: boolean;
@@ -124,12 +123,12 @@ export class Agent {
   async start(): Promise<void> {
     if (this.running) return;
     this.running = true;
-    const created = ensureAgentFiles(agentDir(this.vaultPath));
+    const created = await ensureAgentFiles(this.vaultOps, this.vaultPath);
     if (created.length) logger.info(`Created starter agent files: ${created.join(', ')}`);
     this.config = loadAgentConfig(agentDir(this.vaultPath));
 
     try {
-      if (existsSync(boardFile(this.vaultPath))) ensureCardIds(this.vaultPath);
+      if (existsSync(boardFile(this.vaultPath))) await ensureCardIds(this.vaultOps, this.vaultPath);
     } catch (err) {
       logger.error('Card id migration failed', err);
     }
@@ -174,9 +173,9 @@ export class Agent {
 
   /** Apply new settings. Checkpoint timers are re-armed. */
   updateSettings(next: AgentSettings): void {
-    const nameChanged = next.agentName !== this.settings.agentName || next.capture !== this.settings.capture;
+    const captureChanged = next.capture !== this.settings.capture;
     this.settings = next;
-    if (nameChanged) this.personaKey = '';
+    if (captureChanged) this.personaKey = '';
     if (this.running) {
       this.stopCheckpoints?.();
       this.stopCheckpoints = startCheckpoints(next.checkpointTimes, (kind) => this.runCheckpoint(kind));
@@ -279,7 +278,7 @@ export class Agent {
     if ((await this.store.getSessionState('clearboard_pending')) === '1') {
       await this.store.setSessionState('clearboard_pending', '');
       if (/^(yes|y|yeah|yep|confirm)\b/.test(lower)) {
-        const removed = clearColumns(this.vaultPath, CLEARBOARD_COLUMNS);
+        const removed = await clearColumns(this.vaultOps, this.vaultPath, CLEARBOARD_COLUMNS);
         return `Cleared ${removed} card${removed === 1 ? '' : 's'} from Done and Archive.`;
       }
       if (/^(no|n|nope|nah|cancel|stop)\b/.test(lower)) return 'Board clear cancelled.';
@@ -375,11 +374,11 @@ export class Agent {
 
   private ensureEngine(): EngineSession {
     const c = this.config;
-    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, this.settings.agentName, String(this.settings.capture)].join('\0')).digest('hex');
+    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, String(this.settings.capture)].join('\0')).digest('hex');
     if (!this.engine || key !== this.personaKey) {
       // Personality changed (or first turn): start a conversation with the new prompt.
       this.engine?.close();
-      this.engine = this.makeEngine(buildSystemPrompt(c, { agentName: this.settings.agentName, capture: this.settings.capture }));
+      this.engine = this.makeEngine(buildSystemPrompt(c, { capture: this.settings.capture }));
       this.personaKey = key;
     }
     return this.engine;
@@ -419,7 +418,7 @@ export class Agent {
     if (parsed.rejected.length) logger.warn('Rejected actions', parsed.rejected);
     let text = parsed.message;
     if (parsed.vaultActions.length) {
-      const results = await executeVaultActions(this.vaultPath, this.store, parsed.vaultActions, record);
+      const results = await executeVaultActions(this.vaultPath, this.vaultOps, this.store, parsed.vaultActions, record);
       this.config = loadAgentConfig(agentDir(this.vaultPath));
       // The engine already says what it did; only failures are added. When it
       // said nothing, describe the actions so the change is not silent.
@@ -519,7 +518,7 @@ export class Agent {
 
   private async getContext(): Promise<ContextData> {
     try {
-      const moved = autoMoveCompletedToDone(this.vaultPath);
+      const moved = await autoMoveCompletedToDone(this.vaultOps, this.vaultPath);
       if (moved.length) logger.info(`Moved completed cards to Done: ${moved.join(', ')}`);
     } catch (err) {
       logger.error('Auto-move completed cards failed', err);
@@ -605,7 +604,7 @@ export class Agent {
       if (this.isQuietHours()) return;
       // Heal first: a card ticked done in Doing must land in Done so the diff
       // sees it leave Doing and credits its focus session.
-      autoMoveCompletedToDone(this.vaultPath);
+      await autoMoveCompletedToDone(this.vaultOps, this.vaultPath);
       const board = this.readBoard();
       if (!board) return;
       const doing = board.columns['Doing'] || [];
@@ -650,7 +649,7 @@ export class Agent {
         if (!firstSeen) continue;
         const days = Math.floor((Date.now() - new Date(firstSeen).getTime()) / 86400000);
         if (days < 7) continue;
-        mutateKanban(this.vaultPath, [{ type: 'move', task: task.text, fromColumn: 'Doing', toColumn: 'Backlog' }]);
+        await mutateKanban(this.vaultOps, this.vaultPath, [{ type: 'move', task: task.text, fromColumn: 'Doing', toColumn: 'Backlog' }]);
         const after = this.readBoard();
         if ((after?.columns['Doing'] || []).some(t => t.text === task.text)) {
           logger.error(`Stuck-task move did not persist for "${task.text}"`);

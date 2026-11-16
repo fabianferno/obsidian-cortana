@@ -5,6 +5,7 @@ import { tmpdir } from 'os';
 import { Agent, type AgentMessage, type AgentSettings } from '../src/agent/agent.js';
 import { executeVaultActions, getPendingConfigEdit, PENDING_EDIT_KEY } from '../src/agent/execute-actions.js';
 import { Store } from '../src/store/store.js';
+import { fsVaultOps } from '../src/vault/ops.js';
 import { setLayout, setVaultPath } from '../src/config/paths.js';
 import { buildSystemPrompt } from '../src/brain/prompt-builder.js';
 import { loadAgentConfig } from '../src/config/loader.js';
@@ -40,7 +41,6 @@ class FakeEngine implements EngineSession {
 }
 
 const SETTINGS: AgentSettings = {
-  agentName: 'Testy',
   checkpointTimes: { morning: '', midday: '', evening: '' },
   greetOnOpen: false,
   pulses: false,
@@ -179,7 +179,7 @@ describe('Agent', () => {
   it('sends the live context and the user words, and the persona once', async () => {
     await agent.handleUserMessage('what now?', { spoken: true });
     const [engine] = engines;
-    expect(engine.systemPrompt).toContain('You are Testy');
+    expect(engine.systemPrompt).toContain('You are Cortana');
     expect(engine.systemPrompt).toContain('Daily');
     expect(engine.prompts[0]).toContain('[Context]');
     expect(engine.prompts[0]).toContain('Write intro');
@@ -267,31 +267,31 @@ describe('executeVaultActions', () => {
   });
 
   it('reschedules a card by title and confirms', async () => {
-    const out = await executeVaultActions(vault, store, [{ type: 'reschedule_task', task: 'Gym', newDate: '2026-11-12' }]);
+    const out = await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'reschedule_task', task: 'Gym', newDate: '2026-11-12' }]);
     expect(out).toEqual([{ text: 'Moved "Gym" to 2026-11-12.', ok: true }]);
     expect(readFileSync(join(vault, 'Kanban.md'), 'utf-8')).toContain('Gym @{2026-11-12}');
   });
 
   it('says so when a card is not on the board', async () => {
-    const out = await executeVaultActions(vault, store, [{ type: 'complete_task', task: 'Nope', from: 'To Do' }]);
+    const out = await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'complete_task', task: 'Nope', from: 'To Do' }]);
     expect(out[0].ok).toBe(false);
     expect(out[0].text).toMatch(/couldn't find "Nope"/);
   });
 
   it('records memory without asking', async () => {
-    await executeVaultActions(vault, store, [{ type: 'update_memory', observation: 'Prefers mornings' }]);
+    await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'update_memory', observation: 'Prefers mornings' }]);
     expect(loadAgentConfig(join(vault, 'agent')).memory[0]).toMatch(/Prefers mornings/);
   });
 
   it('gates config edits: propose stages, apply writes, discard drops', async () => {
-    await executeVaultActions(vault, store, [{
+    await executeVaultActions(vault, fsVaultOps(vault), store, [{
       type: 'propose_config_edit', file: 'identity.md', section: 'What I never do',
       operation: 'append_bullet', content: 'Never say synergy.', rationale: 'User asked.',
     }]);
     expect(readFileSync(join(vault, 'agent', 'identity.md'), 'utf-8')).not.toContain('synergy');
     expect(await getPendingConfigEdit(store)).not.toBeNull();
 
-    const out = await executeVaultActions(vault, store, [{ type: 'apply_config_edit' }]);
+    const out = await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'apply_config_edit' }]);
     expect(out).toEqual([{ text: 'Done. identity.md updated.', ok: true }]);
     expect(readFileSync(join(vault, 'agent', 'identity.md'), 'utf-8')).toContain('Never say synergy.');
     expect(await store.getSessionState(PENDING_EDIT_KEY)).toBeNull();
@@ -306,7 +306,7 @@ describe('executeVaultActions', () => {
   });
 
   it('refuses to stage an edit to memory.md (ungated)', async () => {
-    await executeVaultActions(vault, store, [{
+    await executeVaultActions(vault, fsVaultOps(vault), store, [{
       type: 'propose_config_edit', file: 'memory.md', section: 'Entries',
       operation: 'append_bullet', content: 'x', rationale: 'r',
     }]);
@@ -357,7 +357,9 @@ describe('buildSystemPrompt', () => {
     const prompt = buildSystemPrompt({
       soul: 'S', identity: 'I', user: 'U', goals: 'G', memory: ['[2026-11-10] newest', '[2026-11-01] older'],
       userMeta: {} as any,
-    }, { agentName: 'Cortana' });
+    });
+    expect(prompt).toContain('You are Cortana,');
+    expect(prompt).toContain('Call the user "Chief".');
     expect(prompt).toContain('NEVER read, search, open or write anything under "Journal/Days/"');
     expect(prompt).toContain('<actions>');
     expect(prompt.indexOf('newest')).toBeLessThan(prompt.indexOf('older'));

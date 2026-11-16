@@ -15,10 +15,9 @@ import { describeEdit } from '../config/editor.js';
 import { formatDuration } from '../utils/format.js';
 import { getLayout } from '../config/paths.js';
 import { OPEN_TAG, CLOSE_TAG } from './actions.js';
+import { NAME, USER_TITLE } from '../brand.js';
 
 export interface SystemPromptOptions {
-  /** Shown to the engine; the persona's own name lives in identity.md. */
-  agentName?: string;
   /** File what is worth keeping from conversations into the vault (default on). */
   capture?: boolean;
 }
@@ -26,10 +25,10 @@ export interface SystemPromptOptions {
 export function buildSystemPrompt(config: AgentConfig, opts: SystemPromptOptions = {}): string {
   const { boardPath, agentFolder, dailyFolder, captureFolder } = getLayout();
   const capture = opts.capture !== false;
-  const name = opts.agentName?.trim() || 'the agent';
   const memory = config.memory.slice(0, 20).join('\n- ');
 
-  return `You are ${name}, a personal accountability agent that lives in the user's Obsidian vault.
+  return `You are ${NAME}, a personal accountability agent that lives in the user's Obsidian vault.
+Call the user "${USER_TITLE}".
 The user talks to you through a voice panel inside Obsidian: their words reach you through
 speech recognition (or typing), and your replies are read aloud and shown in a sidebar.
 Your working directory is the vault.
@@ -155,7 +154,7 @@ function formatSecondBrain(s: NonNullable<TurnOptions['secondBrain']>): string {
 function boardMissingNote(boardPath: string): string {
   return `- NOT FOUND: there is no board file at "${boardPath}". You cannot see the user's tasks.
   Do NOT say the board or any column is empty. Tell the user the board file was not found and to set
-  "Kanban board" in the Voice Agent settings to the path of their board note.`;
+  "Kanban board" in the Cortana settings to the path of their board note.`;
 }
 
 export function buildTurn(
