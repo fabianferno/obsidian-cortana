@@ -53,4 +53,11 @@ describe('parseTimeEstimate', () => {
   it('parses "45 minutes"', () => {
     expect(parseTimeEstimate('45 minutes', timezone, now)).toBe(45);
   });
+  it('parses spelled-out numbers from speech', () => {
+    expect(parseTimeEstimate('About two hours I think', timezone, now)).toBe(120);
+    expect(parseTimeEstimate('forty five minutes', timezone, now)).toBe(45);
+    expect(parseTimeEstimate('half an hour', timezone, now)).toBe(30);
+    expect(parseTimeEstimate('two and a half hours', timezone, now)).toBe(150);
+    expect(parseTimeEstimate('someone said hi', timezone, now)).toBeNull();
+  });
 });

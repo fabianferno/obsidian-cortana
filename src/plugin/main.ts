@@ -150,7 +150,6 @@ export default class CortanaPlugin extends Plugin {
       checkpointTimes: s.checkpointTimes,
       greetOnOpen: s.greetOnOpen,
       pulses: s.pulses,
-      weather: s.weather,
       capture: s.capture,
       graduate: s.graduate,
       graduatePerDay: s.graduatePerDay,
@@ -234,7 +233,7 @@ export default class CortanaPlugin extends Plugin {
       this.rebuildVoice();
       this.agent = new Agent(this.vaultPath, this.store, this.engineFactory(), this.agentSettings(), (m) => {
         void this.session?.proactive(m.text, m.source, { changes: m.changes, speak: m.speak });
-      }, this.http, this.vaultOps());
+      }, this.vaultOps());
       await this.agent.start();
       if (this.unloaded) this.agent.stop();
     } catch (err) {

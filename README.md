@@ -93,7 +93,7 @@ ways:
 
 On first run the plugin creates the agent's files in the agent folder (`agent/` by default):
 `soul.md`, `identity.md`, `user.md`, `goals.md` and `memory.md`. Edit them to shape the agent.
-`user.md` holds your timezone, quiet hours, check-in interval and coordinates (for weather).
+`user.md` holds your timezone, quiet hours, check-in interval and coordinates (sent to the engine as part of the context).
 
 The first time you talk to it, the plugin downloads the ONNX runtime (21 MB, from jsDelivr,
 verified by checksum) and the Whisper model (about 80 MB for the default, from Hugging Face).
@@ -128,7 +128,7 @@ emoji with me".
 
 | When | What |
 | --- | --- |
-| Morning (08:00) | Top priorities for the day, weather, parked tasks, and what the note pass moved. |
+| Morning (08:00) | Top priorities for the day, parked tasks, and what the note pass moved. |
 | Midday (13:00) | Progress check on the morning plan. |
 | Evening (20:00) | What got done, one question about the day. |
 | In between | Short adaptive nudges. More often with deadlines, less when you are busy or ignoring them. |
@@ -191,7 +191,6 @@ services, and only for these reasons:
 | `stt-rt.soniox.com`, `tts-rt.soniox.com` | Only if you choose Soniox | Your speech audio or the agent's reply text, with your Soniox key. |
 | `api.soniox.com` | When the Soniox voice setting is shown | Your Soniox key and the voice model name, to list the voices you can pick. |
 | `api.elevenlabs.io` | Only if you choose ElevenLabs | The agent's reply text, with your ElevenLabs key. When the ElevenLabs voice setting is shown, your key, to list the voices in your library. |
-| `api.open-meteo.com` | Check-ins, if weather is on and `user.md` has coordinates | The coordinates from `user.md`. Turn weather off in settings. |
 
 With local speech recognition and the system voice, audio never leaves your computer.
 

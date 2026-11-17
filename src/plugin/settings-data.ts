@@ -26,7 +26,6 @@ export interface CortanaSettings {
   checkpointTimes: CheckpointTimes;
   greetOnOpen: boolean;
   pulses: boolean;
-  weather: boolean;
   capture: boolean;
   graduate: boolean;
   graduatePerDay: number;
@@ -69,7 +68,6 @@ export const DEFAULT_SETTINGS: CortanaSettings = {
   checkpointTimes: { ...DEFAULT_CHECKPOINT_TIMES },
   greetOnOpen: true,
   pulses: true,
-  weather: true,
   capture: true,
   // Off until the user turns it on: it moves notes, so it should never start by surprise.
   graduate: false,

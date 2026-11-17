@@ -1,6 +1,23 @@
+// Speech recognition often spells numbers out ("two hours").
+const NUMBER_WORDS: [RegExp, string][] = [
+  [/\bforty[- ]five\b/g, '45'],
+  ...Object.entries({
+    one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10,
+    eleven: 11, twelve: 12, fifteen: 15, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60, ninety: 90,
+  }).map(([w, n]): [RegExp, string] => [new RegExp(`\\b${w}\\b`, 'g'), String(n)]),
+];
+
 export function parseTimeEstimate(input: string, timezone: string, now: Date = new Date()): number | null {
-  const text = input.trim().toLowerCase();
+  let text = input.trim().toLowerCase();
   if (!text) return null;
+  for (const [re, n] of NUMBER_WORDS) text = text.replace(re, n);
+
+  // "half an hour"
+  if (/half\s+an?\s+hour/.test(text)) return 30;
+
+  // "2 and a half hours"
+  const andHalf = text.match(/(\d+)\s+and\s+a\s+half\s+(?:hours?|hrs?)\b/);
+  if (andHalf) return parseInt(andHalf[1], 10) * 60 + 30;
 
   // "before lunch" -> until 12:00
   if (/before\s+lunch/.test(text)) {

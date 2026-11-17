@@ -12,7 +12,7 @@ const location = { city: 'Chennai', country: 'IN', timezone: 'Asia/Kolkata', coo
 
 const context = (v: VaultStateContext): ContextData => ({
   datetime: { now: '10:00', dayOfWeek: 'Saturday', timeOfDay: 'morning', isWeekend: true, daysUntilWeekend: 0 },
-  weather: null, calendar: null, health: null, location, vault: v,
+  calendar: null, health: null, location, vault: v,
 });
 
 const config = { soul: '', identity: '', user: '', goals: '', memory: [] } as unknown as AgentConfig;
@@ -28,6 +28,14 @@ describe('buildTurn board section', () => {
     const text = buildTurn('reply', config, context({ ...vault, boardMissing: 'Kanban.md' }), []);
     expect(text).toContain('no board file at "Kanban.md"');
     expect(text).not.toContain('- To Do: 0 (empty)');
+  });
+});
+
+describe('buildTurn location', () => {
+  it('adds coordinates when user.md has them, and leaves them out when it does not', () => {
+    const withCoords = { ...context(vault), location: { ...location, coordinates: { lat: 13.08, lng: 80.27 } } };
+    expect(buildTurn('reply', config, withCoords, [])).toContain('- Location: Chennai (13.08, 80.27)');
+    expect(buildTurn('reply', config, context(vault), [])).toMatch(/- Location: Chennai\n/);
   });
 });
 

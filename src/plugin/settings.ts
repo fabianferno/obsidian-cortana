@@ -237,7 +237,6 @@ export class CortanaSettingTab extends PluginSettingTab {
     }
     this.toggle(containerEl, 'Greet when Obsidian opens', 'A short snapshot when you open Obsidian (at most every 3 hours).', 'greetOnOpen', { restartAgent: true });
     this.toggle(containerEl, 'Nudges between check-ins', 'Short adaptive nudges. Quiet hours and the pulse interval come from user.md.', 'pulses', { restartAgent: true });
-    this.toggle(containerEl, 'Weather', 'Adds local weather to briefings (open-meteo, no key). Needs Coordinates in user.md.', 'weather', { restartAgent: true });
 
     // --- second brain ---
     new Setting(containerEl).setName('Second brain').setHeading();

@@ -44,7 +44,6 @@ const SETTINGS: AgentSettings = {
   checkpointTimes: { morning: '', midday: '', evening: '' },
   greetOnOpen: false,
   pulses: false,
-  weather: false,
   capture: true,
   graduate: false,
   graduatePerDay: 5,
@@ -262,6 +261,40 @@ describe('Agent', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  describe('while waiting on an estimate', () => {
+    beforeEach(async () => {
+      const noon = new Date();
+      noon.setHours(12, 0, 0, 0);
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'], now: noon });
+      const file = join(vault, 'Kanban.md');
+      writeFileSync(file, BOARD.replace('## Doing\n', '## Doing\n- [ ] Write intro ^aaa111\n').replace('- [ ] Write intro ^aaa111\n- [ ] Gym', '- [ ] Gym'));
+      await agent.pollKanban();
+    });
+    afterEach(() => vi.useRealTimers());
+
+    it('sends an unrelated message to the engine, which is told the estimate is still open', async () => {
+      reply = () => 'Added it.';
+      const out = await agent.handleUserMessage("I'm also training a voice model called Tiny Tamil, put it on the board");
+      expect(out.text).toBe('Added it.');
+      expect(engines[0].prompts.at(-1)).toContain('# Waiting on an estimate');
+      expect(engines[0].prompts.at(-1)).toContain('"Write intro"');
+    });
+
+    it('starts the session from a long message with an estimate and still lets the engine reply', async () => {
+      reply = () => 'On it.';
+      const out = await agent.handleUserMessage('About two hours I think, and also add Tiny Tamil to the board please, thanks');
+      expect(out.text).toBe('On it.');
+      expect(await store.getActiveSessions()).toHaveLength(1);
+      expect(engines[0].prompts.at(-1)).not.toContain('# Waiting on an estimate');
+    });
+
+    it('nudges once locally when the user is not sure', async () => {
+      const out = await agent.handleUserMessage('not sure');
+      expect(out.text).toMatch(/Rough guess/);
+      expect(engines.flatMap(e => e.prompts)).toHaveLength(0);
+    });
   });
 });
 

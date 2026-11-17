@@ -7,7 +7,6 @@
 
 import { createHash, randomUUID } from 'crypto';
 import { asArray, asObject, parseJson } from '../utils/json.js';
-import type { Http } from '../voice/http.js';
 import { existsSync, readFileSync } from 'fs';
 import path from 'path';
 import { addChange, type NoteChange } from './changes.js';
@@ -45,8 +44,6 @@ export interface AgentSettings {
   greetOnOpen: boolean;
   /** Adaptive nudges between checkpoints. */
   pulses: boolean;
-  /** Weather in the context (open-meteo, needs coordinates in user.md). */
-  weather: boolean;
   /** File what is worth keeping from conversations into notes. */
   capture: boolean;
   /** Work through the capture folder once a day. */
@@ -91,6 +88,10 @@ export type EngineFactory = (systemPrompt: string, opts?: { readOnly?: boolean }
 const DEDUP_MS = 10 * 60 * 1000;
 const GREETING_GAP_MS = 3 * 60 * 60 * 1000;
 const CLEARBOARD_COLUMNS = ['Done', 'Archive'];
+/** Longer than this, a reply to "how long?" is a real message, not just the estimate. */
+const ESTIMATE_REPLY_MAX_WORDS = 8;
+/** A reply to "how long?" that dodges it; gets one local nudge. */
+const NOT_SURE = /^(not sure|no idea|no clue|idk|dunno|i don'?t know|unsure|hmm+|who knows)\b/;
 
 export class Agent {
   private config: AgentConfig;
@@ -113,7 +114,6 @@ export class Agent {
     private makeEngine: EngineFactory,
     private settings: AgentSettings,
     private readonly deliver: (m: AgentMessage) => void,
-    private readonly http?: Http,
     private readonly vaultOps: VaultOps = fsVaultOps(vaultPath),
   ) {
     this.config = loadAgentConfig(agentDir(vaultPath));
@@ -232,6 +232,7 @@ export class Agent {
       const turn = buildTurn('reply', this.config, context, await this.signals(context), {
         activeSessions: await this.store.getActiveSessions(),
         pendingEdit: await getPendingConfigEdit(this.store),
+        awaitingEstimate: this.focus.getAwaitingEstimate()?.taskText,
         userText: trimmed,
         spoken: opts.spoken,
         columns: this.readBoard()?.columnOrder,
@@ -299,18 +300,22 @@ export class Agent {
       return "Enjoy your break. I'll be quiet for an hour.";
     }
 
-    // Answer to "how long will it take?" after a card moved into Doing.
+    // Answer to "how long will it take?" after a card moved into Doing. Only a
+    // short reply is taken as the answer; anything longer goes to the engine,
+    // which sees the open question (or the new session) in its context.
     const awaiting = this.focus.getAwaitingEstimate();
     if (awaiting) {
       const tz = toIanaZone(this.config.userMeta.timezone);
+      const short = text.split(/\s+/).length <= ESTIMATE_REPLY_MAX_WORDS;
       const estimate = parseTimeEstimate(text, this.config.userMeta.timezone);
       if (estimate) {
         this.focus.clearAwaitingEstimate();
         const session = await this.focus.startSession(awaiting.taskText, awaiting.rawLine, estimate, 'user', awaiting.cardId);
+        if (!short) return null;
         const at = new Date(session.deadlineAt).toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
         return `Got it. I'll check in at ${at}. Go.`;
       }
-      if (!awaiting.reprompted) {
+      if (!awaiting.reprompted && NOT_SURE.test(lower.trim())) {
         this.focus.markReprompted();
         return "Rough guess? Even 'about an hour' helps.";
       }
@@ -534,7 +539,7 @@ export class Agent {
       logger.error('Auto-move completed cards failed', err);
     }
     this.config = loadAgentConfig(agentDir(this.vaultPath));
-    return assembleContext(this.vaultPath, this.config, this.store, { weather: this.settings.weather, http: this.http });
+    return assembleContext(this.vaultPath, this.config, this.store);
   }
 
   private async signals(context: ContextData) {

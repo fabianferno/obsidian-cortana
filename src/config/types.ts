@@ -58,7 +58,6 @@ export interface KanbanMutation {
 
 export interface ContextData {
   datetime: DateTimeContext;
-  weather: WeatherContext | null;
   calendar: CalendarContext | null;
   health: HealthContext | null;
   location: LocationContext;
@@ -71,16 +70,6 @@ export interface DateTimeContext {
   timeOfDay: 'morning' | 'afternoon' | 'evening' | 'night';
   isWeekend: boolean;
   daysUntilWeekend: number;
-}
-
-export interface WeatherContext {
-  location: string;
-  temperature: number;
-  unit: string;
-  condition: string;
-  humidity: number;
-  isGoodForOutdoor: boolean;
-  summary: string;
 }
 
 export interface CalendarEvent {

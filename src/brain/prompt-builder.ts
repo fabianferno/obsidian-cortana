@@ -168,6 +168,8 @@ export interface TurnOptions {
   activeSessions?: FocusSession[];
   completedToday?: FocusSession[];
   pendingEdit?: PendingConfigEdit | null;
+  /** The card the user was asked to estimate and has not yet answered for. */
+  awaitingEstimate?: string;
   /** The user's words, for a reply turn. */
   userText?: string;
   /** True when the words came from speech recognition. */
@@ -186,6 +188,10 @@ function formatSecondBrain(s: NonNullable<TurnOptions['secondBrain']>): string {
     `- Notes waiting on the user's answer: ${s.waiting}`,
   ].filter(Boolean);
   return `\n# Second brain (mention in one short sentence: what moved, and how many notes wait for an answer)\n${lines.join('\n')}\n`;
+}
+
+function formatCoordinates(c: { lat: number; lng: number }): string {
+  return c.lat || c.lng ? ` (${c.lat}, ${c.lng})` : '';
 }
 
 function boardMissingNote(boardPath: string): string {
@@ -210,12 +216,16 @@ Your reason: ${opts.pendingEdit.rationale}
 If the user's latest message agrees, emit apply_config_edit. If they decline or change the
 subject, emit discard_config_edit. Do not propose the same change again while it is pending.\n`
     : '';
+  const estimateAsk = opts.awaitingEstimate
+    ? `\n# Waiting on an estimate
+You asked how long "${opts.awaitingEstimate}" will take and the user has not said. Handle their
+message first, then end by asking once for a rough time (a short answer like "about an hour").\n`
+    : '';
 
   const contextBlock = `[Context]
 - Now: ${context.datetime.now} (${context.datetime.dayOfWeek}, ${context.datetime.timeOfDay})
-- Weather: ${context.weather?.summary || 'no data'}
 - Calendar: ${formatCalendar(context.calendar)}
-- Location: ${context.location.city}${context.location.isTravelling ? ' (travelling)' : ''}
+- Location: ${context.location.city}${formatCoordinates(context.location.coordinates)}${context.location.isTravelling ? ' (travelling)' : ''}
 
 # Board
 ${v.boardMissing ? boardMissingNote(v.boardMissing) : `- Columns: ${opts.columns?.length ? opts.columns.join(', ') : 'Backlog, To Do, Doing, Done'} (any of these is valid in an action)
@@ -233,7 +243,7 @@ ${formatPriorityScores(context, config)}
 ${buildFocusSessionContext(opts.activeSessions, opts.completedToday)}${opts.secondBrain ? formatSecondBrain(opts.secondBrain) : ''}
 # Signals
 ${signals.map(s => `- ${s.type}: ${JSON.stringify(s.payload)}`).join('\n') || '- none'}
-${pending}
+${pending}${estimateAsk}
 (Reminder: to change the board, memory or your config, write ${OPEN_TAG}[...]${CLOSE_TAG} as text at the
 end of your reply, using the agent actions from your instructions. No tool is needed; it always works.)`;
 
@@ -283,13 +293,13 @@ export function getCheckinInstructions(type: CheckinType): string {
     case 'pulse':
       return 'Generate a 1-2 sentence pulse. Quick, specific, actionable. Yes/no reply path.';
     case 'morning_checkpoint':
-      return 'Generate a morning briefing. Tell the user their top 3 priorities with brief reasoning. Include weather and calendar context if known. Include one non-work habit. Max 8 sentences. If any tasks were parked yesterday, mention them first and ask if the user wants to pick them back up or drop them.';
+      return 'Generate a morning briefing. Tell the user their top 3 priorities with brief reasoning. Include calendar context if known. Include one non-work habit. Max 8 sentences. If any tasks were parked yesterday, mention them first and ask if the user wants to pick them back up or drop them.';
     case 'midday_checkpoint':
       return 'Check progress on the morning plan. Ask about specific tasks by name. Reprioritize if signals suggest drift. Max 5 sentences. If the user has an active focus session, reference it by name and ask if they\'re on track. If idle, suggest top priority from To Do.';
     case 'evening_checkpoint':
       return 'Wind down the day in 3-4 sentences max. Acknowledge what got done. Then ask ONE question about the day\'s work: a task that stalled, a habit, or what tomorrow needs. Just one. Let the conversation unfold naturally from there. For each completed focus session today, briefly note estimated vs actual time if relevant.';
     case 'startup':
-      return 'You just came online (Obsidian was opened). Generate a short greeting (max 4 sentences). Mention what time it is and give a quick snapshot: top priority task from the board, next calendar event if any, and one thing worth knowing (weather, deadline, parked task). End with something that invites the user to jump in. Keep the energy matched to the time of day, chill if it\'s late, energetic if it\'s morning.';
+      return 'You just came online (Obsidian was opened). Generate a short greeting (max 4 sentences). Mention what time it is and give a quick snapshot: top priority task from the board, next calendar event if any, and one thing worth knowing (a deadline, a parked task). End with something that invites the user to jump in. Keep the energy matched to the time of day, chill if it\'s late, energetic if it\'s morning.';
     case 'reply':
       return `Respond DIRECTLY to the user's LATEST message. Rules:
 - Answer the question actually asked. Do not pivot to a different topic.
