@@ -169,6 +169,13 @@ describe('isValidAction', () => {
     expect(isValidAction({ type: 'update_memory', memory: 'User dislikes emojis' })).toBe(false);
   });
 
+  it('keeps set_estimate only with a sane number of minutes', () => {
+    expect(isValidAction({ type: 'set_estimate', minutes: 30 })).toBe(true);
+    expect(isValidAction({ type: 'set_estimate', minutes: '30' })).toBe(false);
+    expect(isValidAction({ type: 'set_estimate', minutes: 0 })).toBe(false);
+    expect(isValidAction({ type: 'set_estimate', minutes: 5000 })).toBe(false);
+  });
+
   it('keeps a well-formed update_memory action', () => {
     expect(isValidAction({ type: 'update_memory', observation: 'User dislikes emojis' })).toBe(true);
   });

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, onTestFinished, vi } from 'vitest';
 import { mkdirSync, readFileSync, writeFileSync, existsSync, utimesSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -141,6 +141,11 @@ describe('Agent', () => {
   });
 
   it('the startup greeting mentions what the note pass did, once', async () => {
+    // Midday, so the greeting is not skipped for quiet hours (23:00-08:00).
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    vi.useFakeTimers({ toFake: ['Date'], now: noon });
+    onTestFinished(() => { vi.useRealTimers(); });
     agent.stop();
     await store.setSessionState('graduation', JSON.stringify({ asked: {}, report: { moved: ['Maria B'], asked: [], trashed: [] } }));
     const greeter = new Agent(vault, store, (sys) => {
@@ -288,6 +293,31 @@ describe('Agent', () => {
       expect(out.text).toBe('On it.');
       expect(await store.getActiveSessions()).toHaveLength(1);
       expect(engines[0].prompts.at(-1)).not.toContain('# Waiting on an estimate');
+    });
+
+    it('takes a bare number as the estimate', async () => {
+      const out = await agent.handleUserMessage('gimme 30');
+      expect(out.text).toMatch(/check in at/);
+      expect((await store.getActiveSessions())[0].estimatedMinutes).toBe(30);
+    });
+
+    it('starts the timer when the engine understands an estimate the parser missed', async () => {
+      reply = () => 'Thirty it is.<actions>[{"type":"set_estimate","minutes":30}]</actions>';
+      const out = await agent.handleUserMessage('give me till the end of this episode, roughly thirty');
+      expect(out.text).toBe('Thirty it is.');
+      const [s] = await store.getActiveSessions();
+      expect(s.estimatedMinutes).toBe(30);
+      expect(s.taskText).toBe('Write intro');
+      expect(engines[0].prompts.at(-1)).toContain('emit set_estimate');
+    });
+
+    it('lets the engine correct a running timer', async () => {
+      await agent.handleUserMessage('about an hour');
+      reply = () => 'Changed.<actions>[{"type":"set_estimate","minutes":30,"task":"Write intro"}]</actions>';
+      await agent.handleUserMessage('actually that will only take me half the time I said before');
+      const [s] = await store.getActiveSessions();
+      expect(s.estimatedMinutes).toBe(30);
+      expect(new Date(s.deadlineAt).getTime() - new Date(s.startedAt).getTime()).toBe(30 * 60 * 1000);
     });
 
     it('nudges once locally when the user is not sure', async () => {

@@ -29,7 +29,7 @@ import {
 } from '../checkins/scheduler.js';
 import { FocusTracker, extractCardId, locateRemovedCard } from '../focus/tracker.js';
 import { checkGuard } from '../focus/guard.js';
-import { parseTimeEstimate } from '../focus/estimator.js';
+import { parseBareEstimate, parseTimeEstimate } from '../focus/estimator.js';
 import { parseInboxKanban } from '../vault/parser.js';
 import { autoMoveCompletedToDone, clearColumns, countColumnCards, ensureCardIds, mutateKanban } from '../vault/writer.js';
 import { Graduation, countWaiting, loadGraduationState, saveGraduationState, type GraduationResult } from './graduation.js';
@@ -307,7 +307,7 @@ export class Agent {
     if (awaiting) {
       const tz = toIanaZone(this.config.userMeta.timezone);
       const short = text.split(/\s+/).length <= ESTIMATE_REPLY_MAX_WORDS;
-      const estimate = parseTimeEstimate(text, this.config.userMeta.timezone);
+      const estimate = parseTimeEstimate(text, this.config.userMeta.timezone) ?? (short ? parseBareEstimate(text) : null);
       if (estimate) {
         this.focus.clearAwaitingEstimate();
         const session = await this.focus.startSession(awaiting.taskText, awaiting.rawLine, estimate, 'user', awaiting.cardId);
@@ -433,7 +433,13 @@ export class Agent {
     if (parsed.rejected.length) logger.warn('Rejected actions', parsed.rejected);
     let text = parsed.message;
     if (parsed.vaultActions.length) {
-      const results = await executeVaultActions(this.vaultPath, this.vaultOps, this.store, parsed.vaultActions, record);
+      const results: { text: string; ok: boolean }[] = [];
+      const vaultActions: VaultAction[] = [];
+      for (const a of parsed.vaultActions) {
+        if (a.type === 'set_estimate') results.push(await this.applyEstimate(a.minutes, a.task));
+        else vaultActions.push(a);
+      }
+      if (vaultActions.length) results.push(...await executeVaultActions(this.vaultPath, this.vaultOps, this.store, vaultActions, record));
       this.config = loadAgentConfig(agentDir(this.vaultPath));
       // The engine already says what it did; only failures are added. When it
       // said nothing, describe the actions so the change is not silent.
@@ -447,6 +453,24 @@ export class Agent {
       }
     }
     return { text, actions: parsed.vaultActions, changes, interrupted: false };
+  }
+
+  /** The set_estimate action: answers the open "how long?", or corrects a running timer. */
+  private async applyEstimate(rawMinutes: number, task?: string): Promise<{ text: string; ok: boolean }> {
+    const minutes = Math.round(rawMinutes);
+    const wanted = task?.trim().toLowerCase() ?? '';
+    const matches = (t: string) => !wanted || t.toLowerCase().includes(wanted) || wanted.includes(t.toLowerCase());
+    const awaiting = this.focus.getAwaitingEstimate();
+    if (awaiting && matches(awaiting.taskText)) {
+      this.focus.clearAwaitingEstimate();
+      await this.focus.startSession(awaiting.taskText, awaiting.rawLine, minutes, 'user', awaiting.cardId);
+      return { text: `Timer set: ${minutes} minutes on "${awaiting.taskText}".`, ok: true };
+    }
+    const sessions = await this.store.getActiveSessions();
+    const session = wanted ? sessions.find(s => matches(s.taskText)) : sessions.at(-1);
+    if (!session) return { text: 'There is no card in Doing to time, so no timer started.', ok: false };
+    await this.focus.reestimate(session.id, minutes);
+    return { text: `Timer for "${session.taskText}" changed to ${minutes} minutes.`, ok: true };
   }
 
   /** A check-in the agent starts: build the turn, run it, deliver the result. */

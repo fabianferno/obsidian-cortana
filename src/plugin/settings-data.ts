@@ -36,6 +36,8 @@ export interface CortanaSettings {
   bargeIn: boolean;
   /** Start listening as soon as the panel opens. */
   listenOnOpen: boolean;
+  /** System-wide shortcut (Electron accelerator) for one spoken question. Empty is off. */
+  globalShortcut: string;
   localSttModel: string;
   /** OS voice name; empty means the system default voice. */
   systemVoice: string;
@@ -78,6 +80,7 @@ export const DEFAULT_SETTINGS: CortanaSettings = {
   speakProactive: true,
   bargeIn: false,
   listenOnOpen: false,
+  globalShortcut: 'Alt+Shift+Space',
   localSttModel: 'Xenova/whisper-base.en',
   systemVoice: '',
   speechRate: 1,

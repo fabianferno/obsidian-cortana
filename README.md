@@ -114,6 +114,13 @@ Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automa
 - **Mic button** (or your hotkey): start or stop listening. Talk naturally; a pause ends your
   turn. While the agent is speaking the mic is ignored, unless you turn on
   **Interrupt by talking** (best with headphones).
+- **Talk from anywhere** (Option+Shift+Space on macOS, Alt+Shift+Space elsewhere, by default):
+  works while another app is in front, as long as Obsidian is running. Press it, hear a tone,
+  ask one thing; the mic closes when you stop talking (or after 10 seconds of silence), and the
+  answer is spoken. Press again to cancel. To change it, click the button under **Talk from
+  anywhere** in the settings and press the new keys; the x button clears it. The shortcut is taken from every other app, so pick one you don't use. It uses
+  Electron's system-wide shortcuts, which Obsidian allows but does not officially support, so a
+  future Obsidian update could break it.
 - **Stop** (or the **Stop speaking** command): cut the agent off.
 - **Type** in the box at the bottom instead of talking.
 - `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.

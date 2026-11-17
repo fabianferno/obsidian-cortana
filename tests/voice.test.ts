@@ -216,6 +216,16 @@ describe('VoiceSession', () => {
     expect(agent.calls.map(c => c.text)).toEqual(['one', 'two']);
   });
 
+  it('reports speech start and end to onVad', () => {
+    const { session } = setup();
+    const seen: string[] = [];
+    session.onVad = (t) => seen.push(t);
+    session.setListening(true);
+    for (let i = 0; i < 30; i++) session.onFrame(frame(0.3));
+    for (let i = 0; i < 40; i++) session.onFrame(frame(0));
+    expect(seen).toEqual(['start', 'end']);
+  });
+
   it('ignores the mic while speaking unless barge-in is on', () => {
     const quiet = setup();
     (quiet.player as { playing: boolean }).playing = true;

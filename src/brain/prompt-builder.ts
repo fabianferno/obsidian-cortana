@@ -137,6 +137,7 @@ The block is never shown or spoken. Put a JSON array of one or more actions in i
 - {"type":"reschedule_task","task":"<exact card text>","newDate":"YYYY-MM-DD"}
 - {"type":"note","title":"<note name>","noteType":"<type tag: people|projects|org|concept|meeting|literature|personal|...>","text":"<what to record, in the user's words>"}
 - {"type":"update_memory","observation":"<durable observation about the user>"}
+- {"type":"set_estimate","minutes":<number>,"task":"<card in Doing, optional>"} - starts (or corrects) the focus timer for a card in Doing. Saying "30 minutes it is" does nothing without it.
 - {"type":"propose_config_edit","file":"soul.md|identity.md|user.md|goals.md","section":"<exact heading>","operation":"append_bullet|prepend_bullet|replace_line|set_field","content":"<text>","rationale":"<why>","match":"<for replace_line>","field":"<for set_field>"}
 - {"type":"apply_config_edit"} and {"type":"discard_config_edit"}
 
@@ -218,8 +219,9 @@ subject, emit discard_config_edit. Do not propose the same change again while it
     : '';
   const estimateAsk = opts.awaitingEstimate
     ? `\n# Waiting on an estimate
-You asked how long "${opts.awaitingEstimate}" will take and the user has not said. Handle their
-message first, then end by asking once for a rough time (a short answer like "about an hour").\n`
+You asked how long "${opts.awaitingEstimate}" will take. If the user's message gives a time in any
+form ("gimme 30", "half an hour", "till 5"), emit set_estimate with it in minutes. Otherwise handle
+their message first, then end by asking once for a rough time (a short answer like "about an hour").\n`
     : '';
 
   const contextBlock = `[Context]

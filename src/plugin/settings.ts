@@ -1,6 +1,7 @@
 // plugin/settings.ts - everything the user can set, and the settings tab.
 
-import { App, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
+import { App, ButtonComponent, Notice, Platform, PluginSettingTab, SecretComponent, Setting } from 'obsidian';
+import { acceleratorFromKey, formatAccelerator } from './global-shortcut.js';
 import { sarvamVoices, type VoiceOption } from '../voice/voices.js';
 import type CortanaPlugin from './main.js';
 import { ENGINES, ENGINE_INFO, type EngineName } from '../engines/index.js';
@@ -221,6 +222,7 @@ export class CortanaSettingTab extends PluginSettingTab {
     this.toggle(containerEl, 'Speak briefings and nudges', 'Read proactive messages aloud, not just show them.', 'speakProactive', { voice: true });
     this.toggle(containerEl, 'Interrupt by talking', 'Your voice cuts the agent off mid-sentence. Best with headphones, or it may hear itself.', 'bargeIn', { voice: true });
     this.toggle(containerEl, 'Listen when the panel opens', 'Turn the microphone on automatically.', 'listenOnOpen');
+    this.shortcutSetting(containerEl);
 
     // --- check-ins ---
     new Setting(containerEl).setName('Check-ins').setHeading();
@@ -299,6 +301,68 @@ export class CortanaSettingTab extends PluginSettingTab {
         }));
       });
     });
+  }
+
+  /** The system-wide shortcut: click, press the keys, done. */
+  private shortcutSetting(el: HTMLElement): void {
+    const mac = Platform.isMacOS;
+    const about = 'Ask Cortana one question from any app while Obsidian is running: press it, hear a tone, talk. The mic closes when you stop. Press again to cancel. The shortcut stops working in every other app, so pick one you do not use.';
+    const settings = this.plugin.settings;
+    const setting = new Setting(el).setName('Talk from anywhere');
+    let button: ButtonComponent | undefined;
+    const show = (note = this.plugin.shortcutError ? `Not set: ${this.plugin.shortcutError}` : '') => {
+      setting.setDesc(note ? `${about} ${note}` : about);
+      button?.setButtonText(settings.globalShortcut ? formatAccelerator(settings.globalShortcut, mac) : 'Set shortcut');
+    };
+    const save = async (accel: string) => {
+      settings.globalShortcut = accel;
+      await this.plugin.saveSettings();
+      this.plugin.applyGlobalShortcut();
+      show();
+    };
+
+    setting.addButton(b => {
+      button = b;
+      b.setTooltip('Click, then press the keys you want').onClick(() => {
+        if (this.stopRecording) return this.stopRecording();
+        // Free the current key so pressing it again can be recorded.
+        this.plugin.pauseGlobalShortcut();
+        b.setButtonText('Press the keys...');
+        setting.setDesc(`${about} Press the keys now, or Esc to cancel.`);
+        const onKey = (e: KeyboardEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+          if (e.code === 'Escape') return this.stopRecording?.();
+          const r = acceleratorFromKey(e, mac);
+          if ('pending' in r) return;
+          if ('error' in r) return void setting.setDesc(`${about} ${r.error}`);
+          finish();
+          void save(r.accelerator);
+        };
+        const finish = () => {
+          activeDocument.removeEventListener('keydown', onKey, true);
+          this.stopRecording = undefined;
+        };
+        this.stopRecording = () => {
+          finish();
+          this.plugin.applyGlobalShortcut();
+          show();
+        };
+        activeDocument.addEventListener('keydown', onKey, true);
+      });
+    });
+    setting.addExtraButton(b => b.setIcon('x').setTooltip('Turn the shortcut off').onClick(() => {
+      this.stopRecording?.();
+      void save('');
+    }));
+    show();
+  }
+
+  /** Ends a shortcut recording in progress (the button again, Esc, or leaving the tab). */
+  private stopRecording?: () => void;
+
+  hide(): void {
+    this.stopRecording?.();
   }
 
   private text(el: HTMLElement, name: string, desc: string, key: StringSettingKey): void {

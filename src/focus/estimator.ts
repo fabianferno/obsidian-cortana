@@ -66,3 +66,15 @@ function minutesUntilTime(targetHour: number, targetMinute: number, timezone: st
   const diff = targetMinutes - currentMinutes;
   return diff > 0 ? diff : null;
 }
+
+/**
+ * A reply to "how long?" that is just a number ("gimme 30", "45?"): 1 to 4 is
+ * hours, 5 and up is minutes. Only for a short answer to that question.
+ */
+export function parseBareEstimate(input: string): number | null {
+  const nums = input.match(/\d+(?:\.\d+)?/g);
+  if (!nums || nums.length !== 1) return null;
+  const n = parseFloat(nums[0]);
+  if (!(n > 0) || n > 600) return null;
+  return n < 5 ? Math.round(n * 60) : Math.round(n);
+}

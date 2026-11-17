@@ -27,11 +27,16 @@ import type { Http } from '../voice/http.js';
 import { elevenLabsVoices, sonioxVoices, type VoiceOption } from '../voice/voices.js';
 import type { SpeechToText, TextToSpeech } from '../voice/types.js';
 import { Transcript } from './transcript.js';
+import { GlobalShortcut } from './global-shortcut.js';
+import { playCue } from '../voice/cue.js';
 import { VIEW_TYPE, CortanaView } from './view.js';
 import { DEFAULT_SETTINGS, CortanaSettingTab, mergeSettings, parseExtraArgs, type CortanaSettings } from './settings.js';
 
 declare const ORT_WASM_SHA256: string;
 declare const TRANSFORMERS_VERSION: string;
+
+/** The shortcut's mic closes if nothing is said for this long. */
+const ONE_SHOT_SILENCE_MS = 10000;
 
 /** Sarvam's Indian languages by code prefix (en-IN needs no script rules). */
 const INDIC_LANGUAGES: Record<string, string> = {
@@ -51,6 +56,12 @@ export default class CortanaPlugin extends Plugin {
   private unloaded = false;
   private player = new Player();
   private mic = new Mic();
+  private shortcut = new GlobalShortcut(() => void this.talkFromAnywhere());
+  /** Listening for one question from the system-wide shortcut; the mic closes after it. */
+  private oneShot = false;
+  /** Why the shortcut from the settings is not registered, or ''. */
+  shortcutError = '';
+  private oneShotTimer?: number;
   private localWorker?: LocalVoiceWorker;
   private saveTimer?: number;
   private pendingState?: StoreData;
@@ -79,6 +90,9 @@ export default class CortanaPlugin extends Plugin {
     this.addCommand({ id: 'stop', name: 'Stop speaking', callback: () => this.interrupt() });
     this.addCommand({ id: 'new-conversation', name: 'New conversation', callback: () => void this.newConversation() });
 
+    const shortcutError = this.applyGlobalShortcut();
+    if (shortcutError) new Notice(`Cortana shortcut: ${shortcutError} Change it in the plugin settings.`, 10000);
+
     this.transcript.onProactive = (text) => {
       if (!this.panelVisible()) new Notice(text, 15000);
     };
@@ -104,6 +118,8 @@ export default class CortanaPlugin extends Plugin {
 
   onunload(): void {
     this.unloaded = true;
+    this.shortcut.clear();
+    this.clearOneShot();
     this.agent?.stop();
     this.mic.stop();
     this.player.dispose();
@@ -230,6 +246,7 @@ export default class CortanaPlugin extends Plugin {
         { handleUserMessage: (t, o) => this.requireAgent().handleUserMessage(t, o), interrupt: () => this.agent?.interrupt() },
         null, null, this.player, this.transcript, this.voiceOptions(),
       );
+      this.session.onVad = (type) => this.onOneShotVad(type);
       this.rebuildVoice();
       this.agent = new Agent(this.vaultPath, this.store, this.engineFactory(), this.agentSettings(), (m) => {
         void this.session?.proactive(m.text, m.source, { changes: m.changes, speak: m.speak });
@@ -374,9 +391,12 @@ export default class CortanaPlugin extends Plugin {
     return this.mic.active;
   }
 
-  async toggleListening(): Promise<void> {
+  /** `background`: the system-wide shortcut. The panel is not revealed, since that would pull Obsidian to the front. */
+  async toggleListening(opts: { background?: boolean } = {}): Promise<void> {
     if (!this.session) return void new Notice('Cortana is still starting.');
     if (this.mic.active) {
+      if (this.oneShot) playCue('stop');
+      this.clearOneShot();
       this.mic.stop();
       this.session.setListening(false);
       return;
@@ -386,7 +406,7 @@ export default class CortanaPlugin extends Plugin {
       this.session.setProviders(this.stt, this.tts);
       if (!this.stt) return;
     }
-    await this.openPanel();
+    if (!opts.background) await this.openPanel();
     this.warmup();
     try {
       this.mic.onFrame = (f) => this.session?.onFrame(f);
@@ -395,6 +415,62 @@ export default class CortanaPlugin extends Plugin {
     } catch (err) {
       this.transcript.error(`Microphone unavailable: ${(err as Error).message}. Check that Obsidian may use the microphone in your system settings.`);
     }
+  }
+
+  // --- the system-wide shortcut ---
+
+  /** (Re)registers the shortcut from the settings. Returns why it failed, or ''. */
+  applyGlobalShortcut(): string {
+    this.shortcutError = this.shortcut.set(this.settings.globalShortcut);
+    return this.shortcutError;
+  }
+
+  /** Lets go of the shortcut while the settings record a new one. */
+  pauseGlobalShortcut(): void {
+    this.shortcut.clear();
+  }
+
+  /**
+   * One spoken question from any app: a tone, listen, and close the mic once
+   * the user stops talking (or says nothing for a while). Pressing it while
+   * listening cancels; pressing it while Cortana talks silences her first (the
+   * question that follows interrupts her turn, as any new utterance does).
+   */
+  async talkFromAnywhere(): Promise<void> {
+    if (!this.session) return void new Notice('Cortana is still starting.');
+    if (this.mic.active) return this.toggleListening();
+    this.session.stopSpeaking();
+    this.oneShot = true;
+    await this.toggleListening({ background: true });
+    if (!this.mic.active) return this.clearOneShot();
+    playCue('start');
+    this.armOneShotTimer();
+  }
+
+  private onOneShotVad(type: 'start' | 'end' | 'discard'): void {
+    if (!this.oneShot) return;
+    if (type === 'start') window.clearTimeout(this.oneShotTimer);
+    else if (type === 'discard') this.armOneShotTimer();
+    else this.endOneShot();
+  }
+
+  private armOneShotTimer(): void {
+    window.clearTimeout(this.oneShotTimer);
+    this.oneShotTimer = window.setTimeout(() => this.endOneShot(), ONE_SHOT_SILENCE_MS);
+  }
+
+  private endOneShot(): void {
+    if (!this.oneShot) return;
+    this.clearOneShot();
+    if (!this.mic.active) return;
+    this.mic.stop();
+    this.session?.setListening(false);
+    playCue('stop');
+  }
+
+  private clearOneShot(): void {
+    this.oneShot = false;
+    window.clearTimeout(this.oneShotTimer);
   }
 
   async sendText(text: string): Promise<void> {

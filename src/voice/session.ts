@@ -69,6 +69,8 @@ export class VoiceSession {
   private busy = 0;
   private transcribing = 0;
   private speechGen = 0;
+  /** Speech started, an utterance ended, or a too-short sound was dropped. */
+  onVad?: (type: 'start' | 'end' | 'discard') => void;
 
   constructor(
     private readonly agent: AgentLike,
@@ -130,6 +132,7 @@ export class VoiceSession {
     } else {
       this.refreshState();
     }
+    this.onVad?.(ev.type);
   }
 
   /** A finished utterance (16 kHz samples). */
@@ -171,7 +174,8 @@ export class VoiceSession {
     this.agent.interrupt();
   }
 
-  private stopSpeaking(): void {
+  /** Silences the current reply; the turn itself keeps running. */
+  stopSpeaking(): void {
     this.speechGen++;
     this.player.stop();
   }

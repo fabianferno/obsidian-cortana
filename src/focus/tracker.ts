@@ -101,6 +101,16 @@ export class FocusTracker {
     return session;
   }
 
+  /** A corrected estimate: the deadline moves (from the start) and nudges begin again. */
+  async reestimate(sessionId: number, minutes: number): Promise<void> {
+    const session = (await this.store.getActiveSessions()).find(s => s.id === sessionId);
+    if (!session) return;
+    const deadlineAt = new Date(new Date(session.startedAt).getTime() + minutes * 60 * 1000).toISOString();
+    const updates = { estimatedMinutes: minutes, estimateSource: 'user' as const, deadlineAt, escalationLevel: 0 as const };
+    await this.store.updateFocusSession(sessionId, updates);
+    this.scheduleNudge({ ...session, ...updates });
+  }
+
   async completeSession(sessionId: number): Promise<void> {
     const sessions = await this.store.getActiveSessions();
     const session = sessions.find(s => s.id === sessionId);

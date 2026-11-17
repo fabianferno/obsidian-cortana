@@ -25,6 +25,7 @@ export const ACTION_SCHEMA: Record<string, string[]> = {
   complete_task: ['task', 'from'],
   add_task: ['text', 'column'],
   reschedule_task: ['task', 'newDate'],
+  set_estimate: ['minutes'],
   note: ['title', 'noteType', 'text'],
   people_note: ['name', 'note'],
   literature_note: ['title', 'noteType', 'source', 'note'],
@@ -46,6 +47,7 @@ export function isValidAction(value: unknown): value is VaultAction {
     if (a.operation === 'replace_line' && !a.match) return false;
     if (a.operation === 'set_field' && !a.field) return false;
   }
+  if (a.type === 'set_estimate' && !(typeof a.minutes === 'number' && a.minutes > 0 && a.minutes <= 12 * 60)) return false;
   if (a.type === 'reschedule_task' && !(typeof a.newDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.newDate))) return false;
   return true;
 }
@@ -157,6 +159,8 @@ export function describeActions(actions: VaultAction[] | undefined): string {
           return `Saved a literature note on "${action.title}".`;
         case 'update_memory':
           return 'Noted.';
+        case 'set_estimate':
+          return `Timer set for ${action.minutes} minutes.`;
         default:
           return '';
       }

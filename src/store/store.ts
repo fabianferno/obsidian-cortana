@@ -157,7 +157,7 @@ export class Store {
 
   async updateFocusSession(
     id: number,
-    updates: Partial<Pick<FocusSession, 'escalationLevel' | 'status' | 'actualMinutes' | 'pausedNote' | 'completedAt' | 'deadlineAt' | 'estimatedMinutes'>>,
+    updates: Partial<Pick<FocusSession, 'escalationLevel' | 'status' | 'actualMinutes' | 'pausedNote' | 'completedAt' | 'deadlineAt' | 'estimatedMinutes' | 'estimateSource'>>,
   ): Promise<void> {
     const s = this.data.focusSessions.find((x) => x.id === id);
     if (!s) return;

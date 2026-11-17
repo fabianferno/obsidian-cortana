@@ -36,7 +36,9 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 
 - `src/plugin/` - Obsidian side. `main.ts` wires everything; `settings.ts` (settings + tab,
   API keys via `app.secretStorage`); `view.ts` (side panel); `transcript.ts` (panel model,
-  implements `VoiceUi`).
+  implements `VoiceUi`);
+  `global-shortcut.ts` (system-wide "Talk from anywhere" key through Electron's globalShortcut via
+  @electron/remote; fails soft; the plugin runs it as one question, then the mic closes).
 - `src/agent/agent.ts` - the agent, UI-independent. One engine conversation, turns run one at
   a time (`exclusive`). Local commands (/pause, /clear, /graduate, estimates) short-circuit before
   the engine. Proactive messages (checkpoints, pulses, focus) go out through `deliver`.

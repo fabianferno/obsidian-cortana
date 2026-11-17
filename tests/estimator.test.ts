@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTimeEstimate } from '../src/focus/estimator.js';
+import { parseBareEstimate, parseTimeEstimate } from '../src/focus/estimator.js';
 
 describe('parseTimeEstimate', () => {
   const timezone = 'Asia/Kolkata';
@@ -59,5 +59,19 @@ describe('parseTimeEstimate', () => {
     expect(parseTimeEstimate('half an hour', timezone, now)).toBe(30);
     expect(parseTimeEstimate('two and a half hours', timezone, now)).toBe(150);
     expect(parseTimeEstimate('someone said hi', timezone, now)).toBeNull();
+  });
+});
+
+describe('parseBareEstimate', () => {
+  it('reads a lone number as minutes, or hours when it is small', () => {
+    expect(parseBareEstimate('gimme 30')).toBe(30);
+    expect(parseBareEstimate('45?')).toBe(45);
+    expect(parseBareEstimate('2')).toBe(120);
+    expect(parseBareEstimate('1.5')).toBe(90);
+  });
+  it('gives up on no number or several', () => {
+    expect(parseBareEstimate('soon')).toBeNull();
+    expect(parseBareEstimate('between 20 and 30')).toBeNull();
+    expect(parseBareEstimate('0')).toBeNull();
   });
 });
