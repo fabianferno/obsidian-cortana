@@ -1,6 +1,6 @@
 {
   "name": "obsidian-cortana",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Talk to your Obsidian vault. Cortana is a voice agent powered by Claude Code, Codex or Antigravity, with briefings and kanban check-ins.",
   "private": true,
   "type": "module",

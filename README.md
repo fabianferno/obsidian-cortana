@@ -125,7 +125,8 @@ Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automa
   future Obsidian update could break it.
 - **Stop** (or the **Stop speaking** command): cut the agent off.
 - **Type** in the box at the bottom instead of talking.
-- `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.
+- Type `/` in the box for a menu of commands (arrow keys, Enter to run, Tab to fill in).
+  `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.
   `/status` shows whether the agent is paused. `/clearboard` empties Done and Archive (asks
   first). `/graduate` runs the daily note pass now. `/undoboard` reverts the last board repair.
 

@@ -11,6 +11,7 @@ import { buildSystemPrompt } from '../src/brain/prompt-builder.js';
 import { loadAgentConfig } from '../src/config/loader.js';
 import { suppressPulses, resumePulses } from '../src/checkins/scheduler.js';
 import type { EngineEvent, EngineSession, TurnResult } from '../src/engines/types.js';
+import { COMMANDS, matchCommands } from '../src/agent/commands.js';
 
 const BOARD = ['## Backlog', '', '## To Do', '- [ ] Write intro ^aaa111', '- [ ] Gym ^bbb222', '', '## Doing', '', '## Done', ''].join('\n');
 
@@ -250,6 +251,14 @@ describe('Agent', () => {
     expect((await agent.handleUserMessage('/undoboard')).text).toMatch(/no board repair to undo/);
   });
 
+  it('handles every command in the / menu itself, never passing it to the engine', async () => {
+    for (const c of COMMANDS) {
+      await agent.handleUserMessage(c.name);
+      if (c.name === '/clearboard') await agent.handleUserMessage('no');
+    }
+    expect(engines.flatMap(e => e.prompts).filter(p => COMMANDS.some(c => p.includes(c.name)))).toEqual([]);
+  });
+
   it('handles /pause and /resume without the engine', async () => {
     const out = await agent.handleUserMessage('/pause');
     expect(out.text).toMatch(/Paused/);
@@ -470,5 +479,18 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('<actions>');
     expect(prompt.indexOf('newest')).toBeLessThan(prompt.indexOf('older'));
     setLayout({});
+  });
+});
+
+describe('matchCommands', () => {
+  it('suggests commands only while the input is a lone /word', () => {
+    expect(matchCommands('/').map(c => c.name)).toEqual(COMMANDS.map(c => c.name));
+    expect(matchCommands('/cl').map(c => c.name)).toEqual(['/clear', '/clearboard']);
+    expect(matchCommands('/board').map(c => c.name)).toEqual(['/clearboard', '/undoboard']);
+    expect(matchCommands('/PA').map(c => c.name)).toEqual(['/pause']);
+    expect(matchCommands('/pause')).toEqual([]);
+    expect(matchCommands('/zzz')).toEqual([]);
+    expect(matchCommands('hi /pa')).toEqual([]);
+    expect(matchCommands('/pause now')).toEqual([]);
   });
 });

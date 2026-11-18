@@ -6,6 +6,7 @@ import { NAME, USER_TITLE } from '../brand.js';
 import { describeSource, type Entry } from './transcript.js';
 import type { VoiceState } from '../voice/session.js';
 import { describeChange, type NoteChange } from '../agent/changes.js';
+import { matchCommands, type SlashCommand } from '../agent/commands.js';
 
 const CHANGE_ICONS: Record<NoteChange['kind'], string> = {
   created: 'file-plus', updated: 'file-pen', moved: 'folder-input', asked: 'circle-help', trashed: 'trash-2', deleted: 'trash-2',
@@ -43,6 +44,12 @@ export class CortanaView extends ItemView {
   private micBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private input!: HTMLTextAreaElement;
+  /** The "/" command menu above the composer. */
+  private suggestEl!: HTMLElement;
+  private suggestions: SlashCommand[] = [];
+  private selected = 0;
+  /** Prefix for the menu's element ids, unique per panel. */
+  private readonly uid = `cortana-suggest-${Math.random().toString(36).slice(2, 8)}`;
   private noticeEl!: HTMLElement;
   private rendered = new Map<number, HTMLElement>();
   /** Words already shown per reply, so only new words stream in. */
@@ -85,6 +92,7 @@ export class CortanaView extends ItemView {
 
     // One rounded composer: the text box with the stop and mic buttons inside it.
     const footer = root.createDiv('cortana-footer');
+    this.suggestEl = footer.createDiv({ cls: 'cortana-suggest', attr: { id: this.uid, role: 'listbox', 'aria-label': 'Commands' } });
     const composer = footer.createDiv('cortana-composer');
     this.input = composer.createEl('textarea', { cls: 'cortana-input', attr: { rows: '1', placeholder: `Message ${NAME}` } });
     this.stopBtn = composer.createEl('button', { cls: 'cortana-composer-btn cortana-stop', attr: { 'aria-label': 'Stop' } });
@@ -92,11 +100,41 @@ export class CortanaView extends ItemView {
     this.stopBtn.onclick = () => this.plugin.interrupt();
     this.micBtn = composer.createEl('button', { cls: 'cortana-composer-btn cortana-mic', attr: { 'aria-label': 'Talk (toggle listening)' } });
     this.micBtn.onclick = () => void this.plugin.toggleListening();
+    this.input.setAttr('aria-controls', this.uid);
+    this.input.setAttr('aria-autocomplete', 'list');
+    this.input.addEventListener('input', () => this.updateSuggestions());
+    this.input.addEventListener('blur', () => this.showSuggestions([]));
     this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      if (e.isComposing) return;
+      if (this.suggestions.length > 0) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const n = this.suggestions.length;
+          this.highlight((this.selected + (e.key === 'ArrowDown' ? 1 : n - 1)) % n);
+          return;
+        }
+        if (e.key === 'Tab') {
+          e.preventDefault();
+          this.input.value = this.suggestions[this.selected].name;
+          this.showSuggestions([]);
+          return;
+        }
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          this.runCommand(this.suggestions[this.selected]);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this.showSuggestions([]);
+          return;
+        }
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         const text = this.input.value;
         this.input.value = '';
+        this.showSuggestions([]);
         void this.plugin.sendText(text);
       }
     });
@@ -110,6 +148,56 @@ export class CortanaView extends ItemView {
   async onClose(): Promise<void> {
     this.unsubscribe?.();
     this.rendered.clear();
+  }
+
+  private updateSuggestions(): void {
+    this.selected = 0;
+    this.showSuggestions(matchCommands(this.input.value));
+  }
+
+  private showSuggestions(list: SlashCommand[]): void {
+    this.suggestions = list;
+    this.renderSuggestions();
+  }
+
+  private renderSuggestions(): void {
+    const open = this.suggestions.length > 0;
+    this.suggestEl.empty();
+    this.suggestEl.toggleClass('is-visible', open);
+    this.input.setAttr('aria-expanded', String(open));
+    if (!open) {
+      this.input.removeAttribute('aria-activedescendant');
+      return;
+    }
+    this.suggestions.forEach((c, i) => {
+      const item = this.suggestEl.createDiv({ cls: 'cortana-suggest-item', attr: { id: `${this.uid}-${i}`, role: 'option' } });
+      item.createSpan({ cls: 'cortana-suggest-name', text: c.name });
+      item.createSpan({ cls: 'cortana-suggest-desc', text: c.description });
+      // mousedown, not click: runs before the text box loses focus and closes the menu.
+      item.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        this.runCommand(c);
+      });
+      item.addEventListener('mouseenter', () => this.highlight(i));
+    });
+    this.highlight(this.selected);
+  }
+
+  /** Marks item `i` as the one Enter runs, and keeps it in view. */
+  private highlight(i: number): void {
+    this.selected = i;
+    Array.from(this.suggestEl.children).forEach((el, j) => {
+      el.toggleClass('is-selected', j === i);
+      el.setAttr('aria-selected', String(j === i));
+    });
+    this.input.setAttr('aria-activedescendant', `${this.uid}-${i}`);
+    this.suggestEl.children[i]?.scrollIntoView({ block: 'nearest' });
+  }
+
+  private runCommand(c: SlashCommand): void {
+    this.input.value = '';
+    this.showSuggestions([]);
+    void this.plugin.sendText(c.name);
   }
 
   setNotice(text: string): void {
