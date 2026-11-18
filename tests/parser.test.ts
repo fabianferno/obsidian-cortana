@@ -257,6 +257,11 @@ describe('parseAgentReply actions block', () => {
     expect(reply.vaultActions).toEqual([]);
   });
 
+  it('validates edit_task', () => {
+    expect(isValidAction({ type: 'edit_task', task: 'Gym', text: 'Gym at 6' })).toBe(true);
+    expect(isValidAction({ type: 'edit_task', task: 'Gym' })).toBe(false);
+  });
+
   it('validates reschedule dates', () => {
     expect(isValidAction({ type: 'reschedule_task', task: 'Gym', newDate: '2026-11-11' })).toBe(true);
     expect(isValidAction({ type: 'reschedule_task', task: 'Gym', newDate: 'tomorrow' })).toBe(false);

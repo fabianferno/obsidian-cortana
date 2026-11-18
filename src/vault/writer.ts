@@ -40,7 +40,7 @@ export async function ensureCardIds(ops: VaultOps, vaultPath: string): Promise<s
       const m = line.match(/^(\s*-\s*\[[ xX]\]\s+)(.+?)(\s*)$/);
       if (!m) return line;
       const body = m[2];
-      if (/\s\^[a-z0-9]+$/.test(body)) return line; // already has an id
+      if (/\s\^[A-Za-z0-9-]+$/.test(body)) return line; // already has an id
       const id = mintCardId(existing);
       minted.push(id);
       return `${m[1]}${body} ^${id}`;
@@ -79,7 +79,7 @@ function applyMutations(original: string, mutations: KanbanMutation[]): string {
         content = addTask(content, mutation.task, mutation.toColumn!);
         break;
       case 'remove':
-        content = removeTask(content, mutation.task, mutation.fromColumn!);
+        content = removeTask(content, mutation.task, mutation.fromColumn!).content;
         break;
       case 'edit':
         content = editTask(content, mutation.task, mutation.newText!);
@@ -222,16 +222,19 @@ function moveTask(content: string, taskText: string, from: string, to: string): 
   // Card is nowhere on the board: do NOT fabricate one in the destination.
   // A move must relocate an existing card, never conjure a phantom (which is how
   // "clear the finvoice" could otherwise invent a Done card that never existed).
-  if (!source) return content;
-  const result = removeTask(content, taskText, source);
-  return addTask(result, taskText, to);
+  if (!source || source === to) return content;
+  // No such destination column: leave the card where it is instead of dropping it.
+  if (!content.split('\n').some(l => l.trim() === `## ${to}`)) return content;
+  // Move the card's own line, so its date, pause note and block id travel with it.
+  const { content: result, body } = removeTask(content, taskText, source);
+  return body ? addTask(result, body, to) : content;
 }
 
 /** Strip wikilink brackets so cleaned text from the parser matches raw lines containing [[...]]. */
 function normalizeTaskBody(s: string): string {
   return s
     .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/\s*\^[a-z0-9]+\s*$/, '') // ignore trailing block-ref id when matching
+    .replace(/\s*\^[A-Za-z0-9-]+\s*$/, '') // ignore trailing block-ref id when matching
     .replace(/\s+/g, ' ')
     .trim();
 }
@@ -284,35 +287,32 @@ function addTask(content: string, taskText: string, column: string): string {
 
   // Ensure the added card carries a block-ref id
   let bodyWithId = taskText;
-  if (!/\s\^[a-z0-9]+$/.test(taskText)) {
+  if (!/\s\^[A-Za-z0-9-]+$/.test(taskText)) {
     bodyWithId = `${taskText} ^${mintCardId(collectExistingIds(content))}`;
   }
   const taskLine = `\n- [ ] ${bodyWithId}`;
   return content.slice(0, insertPoint) + taskLine + content.slice(insertPoint);
 }
 
-function removeTask(content: string, taskText: string, column: string): string {
+/** Removes the first card in `column` whose title matches, and returns its body (null if none). */
+function removeTask(content: string, taskText: string, column: string): { content: string; body: string | null } {
   const lines = content.split('\n');
-  let inColumn = false;
-  const result: string[] = [];
   const want = normalizeForMatch(taskText);
-
-  for (const line of lines) {
+  let inColumn = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
     if (line.trim().startsWith('## ')) {
       inColumn = line.trim() === `## ${column}`;
+      continue;
     }
-
-    if (inColumn) {
-      const m = line.match(/^\s*-\s*\[[ xX]\]\s+(.+)$/);
-      if (m && normalizeForMatch(m[1]).includes(want)) {
-        continue; // Skip this line (remove it)
-      }
+    if (!inColumn) continue;
+    const m = line.match(/^\s*-\s*\[[ xX]\]\s+(.+)$/);
+    if (m && normalizeForMatch(m[1]) === want) {
+      lines.splice(i, 1);
+      return { content: lines.join('\n'), body: m[1].trimEnd() };
     }
-
-    result.push(line);
   }
-
-  return result.join('\n');
+  return { content, body: null };
 }
 
 function editTask(content: string, oldText: string, newText: string): string {
@@ -347,10 +347,79 @@ function normalizeCardTitle(s: string): string {
     .replace(/@\{\d{4}-\d{2}-\d{2}\}/g, '')
     .replace(/@@\{\d{2}:\d{2}\}/g, '')
     .replace(/\[\[([^\]]+)\]\]/g, '$1')
-    .replace(/\s*\^[a-z0-9]+\s*$/, '')
+    .replace(/\s*\^[A-Za-z0-9-]+\s*$/, '')
+    .replace(PAUSE_NOTE, '')
     .replace(/\s+/g, ' ')
     .trim()
     .toLowerCase();
+}
+
+/** The pause note the focus tracker appends to a card: " -- paused: <why>" (em dash). */
+const PAUSE_NOTE = /\s*—\s*paused:.*$/;
+const LEADING_CHECKBOXES = /^(?:-\s*\[[ xX]\]\s*)+/;
+
+export type EditCardResult = 'edited' | 'unchanged' | 'not_found' | 'ambiguous' | 'empty';
+
+/**
+ * Rewrite the text of the one card whose title matches `title`, in place: same
+ * column, checkbox, date, time, pause note and block id. Used to fix typos and
+ * badly formatted cards ("- [ ] - [ ] X"). Exact title matches only, and a title
+ * that matches more than one card changes nothing, since an edit replaces words.
+ */
+export async function editCardText(ops: VaultOps, vaultPath: string, title: string, newText: string): Promise<EditCardResult> {
+  let result: EditCardResult = 'not_found';
+  await processBoard(ops, vaultPath, content => {
+    const out = editByTitle(content, title, newText);
+    result = out.result;
+    return out.content;
+  });
+  return result;
+}
+
+function editByTitle(content: string, title: string, newText: string): { content: string; result: EditCardResult } {
+  const key = (s: string) => normalizeCardTitle(s).replace(LEADING_CHECKBOXES, '').trim();
+  const want = key(title);
+  if (!want) return { content, result: 'not_found' };
+  const lines = content.split('\n');
+  const hits: number[] = [];
+  lines.forEach((line, i) => {
+    const m = line.match(/^\s*-\s*\[[ xX]\]\s+(.+)$/);
+    if (m && key(m[1]) === want) hits.push(i);
+  });
+  if (hits.length === 0) return { content, result: 'not_found' };
+  if (hits.length > 1) return { content, result: 'ambiguous' };
+
+  const [, indent, check, oldBody] = lines[hits[0]].match(/^(\s*)-\s*\[([ xX])\]\s+(.+?)\s*$/)!;
+  let rest = oldBody;
+  const id = rest.match(/\s\^([A-Za-z0-9-]+)$/)?.[1];
+  if (id) rest = rest.replace(/\s\^[A-Za-z0-9-]+$/, '');
+  const pause = rest.match(PAUSE_NOTE)?.[0].trim();
+  if (pause) rest = rest.replace(PAUSE_NOTE, '');
+
+  // One line, no checkbox prefix, no id of its own (the card keeps its id).
+  let text = newText.replace(/\s+/g, ' ').trim()
+    .replace(LEADING_CHECKBOXES, '')
+    .replace(/(^|\s)\^[A-Za-z0-9-]+$/, '')
+    .trim();
+  if (!text.replace(/@@?\{[^}]*\}/g, '').trim()) return { content, result: 'empty' };
+
+  // The engine sees card text without [[ ]]: put back the links it kept as plain words.
+  for (const [link, target] of rest.matchAll(/\[\[([^\]]+)\]\]/g)) {
+    if (!text.includes(link) && text.includes(target)) text = text.replace(target, link);
+  }
+  const date = rest.match(/@\{\d{4}-\d{2}-\d{2}\}/)?.[0];
+  const time = rest.match(/@@\{\d{2}:\d{2}\}/)?.[0];
+  const parts = [
+    text,
+    date && !/(^|[^@])@\{/.test(text) ? date : '',
+    time && !text.includes('@@{') ? time : '',
+    pause ?? '',
+    id ? `^${id}` : '',
+  ].filter(Boolean);
+  const line = `${indent}- [${check}] ${parts.join(' ')}`;
+  if (line === lines[hits[0]]) return { content, result: 'unchanged' };
+  lines[hits[0]] = line;
+  return { content: lines.join('\n'), result: 'edited' };
 }
 
 /**
@@ -402,10 +471,10 @@ function rescheduleByTitle(content: string, title: string, date: string, time: s
   const target = (dated ?? candidates[0]).i;
 
   const line = lines[target];
-  const idMatch = line.match(/\s(\^[a-z0-9]+)\s*$/);
+  const idMatch = line.match(/\s(\^[A-Za-z0-9-]+)\s*$/);
   const id = idMatch ? idMatch[1] : null;
   let base = line;
-  if (id) base = base.replace(/\s\^[a-z0-9]+\s*$/, '');
+  if (id) base = base.replace(/\s\^[A-Za-z0-9-]+\s*$/, '');
   base = base
     .replace(/@\{\d{4}-\d{2}-\d{2}\}/, '')
     .replace(/@@\{\d{2}:\d{2}\}/, '')

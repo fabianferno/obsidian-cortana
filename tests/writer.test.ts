@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mutateKanban, ensureCardIds, updateCardDeadlineById, updateCardDeadlineByTitle, deleteCardById, autoMoveCompletedToDone, clearColumns, countColumnCards } from '../src/vault/writer.js';
+import { mutateKanban, ensureCardIds, updateCardDeadlineById, updateCardDeadlineByTitle, deleteCardById, autoMoveCompletedToDone, clearColumns, countColumnCards, editCardText } from '../src/vault/writer.js';
 import { parseInboxKanban } from '../src/vault/parser.js';
 import { fsVaultOps } from '../src/vault/ops.js';
 
@@ -29,6 +29,31 @@ describe('card ids', () => {
     expect(doing[1].id).toBe('keep01');
 
     expect((await ensureCardIds(fsVaultOps(vault), vault)).length).toBe(0);
+  });
+
+  it('keeps hand-written ids with dashes and capitals instead of adding a second id', async () => {
+    const vault = makeVault(['## To Do', '- [ ] Ask about visa @{2026-11-20} ^ns-visa-status', '- [ ] Pack ^Trip2', '## Done'].join('\n'));
+    expect(await ensureCardIds(fsVaultOps(vault), vault)).toEqual([]);
+    const todo = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8')).columns['To Do'];
+    expect(todo[0].id).toBe('ns-visa-status');
+    expect(todo[0].text).toBe('Ask about visa');
+    expect(todo[1].id).toBe('Trip2');
+
+    await mutateKanban(fsVaultOps(vault), vault, [{ type: 'move', task: 'Ask about visa', fromColumn: 'To Do', toColumn: 'Done' }]);
+    expect(readFileSync(inboxPath(vault), 'utf-8')).toContain('## Done\n- [ ] Ask about visa @{2026-11-20} ^ns-visa-status');
+  });
+
+  it('a move keeps the date and id, touches only the named card, and never drops it', async () => {
+    const vault = makeVault(['## To Do', '- [ ] Fix bike @{2026-11-20} ^aaa111', '- [ ] Fix bike chain ^bbb222', '## Done', ''].join('\n'));
+    const ops = fsVaultOps(vault);
+    expect(await mutateKanban(ops, vault, [{ type: 'move', task: 'Fix bike', fromColumn: 'To Do', toColumn: 'Done' }])).toBe(true);
+    const board = parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8'));
+    expect(board.columns['To Do'].map(t => t.id)).toEqual(['bbb222']);
+    expect(board.columns['Done'].map(t => t.id)).toEqual(['aaa111']);
+    expect(readFileSync(inboxPath(vault), 'utf-8')).toContain('- [ ] Fix bike @{2026-11-20} ^aaa111');
+
+    expect(await mutateKanban(ops, vault, [{ type: 'move', task: 'Fix bike chain', fromColumn: 'To Do', toColumn: 'Nowhere' }])).toBe(false);
+    expect(parseInboxKanban(readFileSync(inboxPath(vault), 'utf-8')).columns['To Do'].map(t => t.id)).toEqual(['bbb222']);
   });
 
   it('mutateKanban add mints an id for the new card', async () => {
@@ -338,5 +363,37 @@ describe('clearColumns / countColumnCards', () => {
     const vault = makeVault(body);
     expect(await clearColumns(fsVaultOps(vault), vault, ['Done', 'Archive'])).toBe(0);
     expect(readFileSync(inboxPath(vault), 'utf-8')).toBe(body);
+  });
+});
+
+describe('editCardText', () => {
+  const read = (vault: string) => readFileSync(inboxPath(vault), 'utf-8');
+
+  it('rewrites the text in place and keeps checkbox, date, time, pause note and id', async () => {
+    const vault = makeVault(['## To Do', '- [x] Fix bik @{2026-11-20} @@{09:00} \u2014 paused: waiting on parts ^aaa111', '- [ ] Other ^bbb222'].join('\n'));
+    expect(await editCardText(fsVaultOps(vault), vault, 'Fix bik', 'Fix bike')).toBe('edited');
+    expect(read(vault)).toBe(['## To Do', '- [x] Fix bike @{2026-11-20} @@{09:00} \u2014 paused: waiting on parts ^aaa111', '- [ ] Other ^bbb222'].join('\n'));
+  });
+
+  it('cleans up a doubled checkbox, matched by either form of the title', async () => {
+    const vault = makeVault(['## Backlog', '- [ ] - [ ] Learn color grading'].join('\n'));
+    expect(await editCardText(fsVaultOps(vault), vault, 'Learn color grading', '- [ ] Learn color grading for iphone videos')).toBe('edited');
+    expect(read(vault)).toBe(['## Backlog', '- [ ] Learn color grading for iphone videos'].join('\n'));
+  });
+
+  it('keeps wikilinks the new text mentions, and a date the new text sets wins', async () => {
+    const vault = makeVault(['## To Do', '- [ ] Finish [[llm finetuning]] cours @{2026-11-20} ^aaa111'].join('\n'));
+    expect(await editCardText(fsVaultOps(vault), vault, 'Finish llm finetuning cours', 'Finish llm finetuning course @{2026-12-01}')).toBe('edited');
+    expect(read(vault)).toContain('- [ ] Finish [[llm finetuning]] course @{2026-12-01} ^aaa111');
+  });
+
+  it('refuses ambiguous, missing and empty edits without writing', async () => {
+    const body = ['## To Do', '- [ ] Gym ^aaa111', '## Done', '- [ ] Gym ^bbb222', '- [ ] Gym session ^ccc333'].join('\n');
+    const vault = makeVault(body);
+    const ops = fsVaultOps(vault);
+    expect(await editCardText(ops, vault, 'Gym', 'Gym at 6')).toBe('ambiguous');
+    expect(await editCardText(ops, vault, 'Gy', 'Gym at 6')).toBe('not_found');
+    expect(await editCardText(ops, vault, 'Gym session', '- [ ] ^ddd444')).toBe('empty');
+    expect(read(vault)).toBe(body);
   });
 });

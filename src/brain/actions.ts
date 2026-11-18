@@ -25,6 +25,8 @@ export const ACTION_SCHEMA: Record<string, string[]> = {
   complete_task: ['task', 'from'],
   add_task: ['text', 'column'],
   reschedule_task: ['task', 'newDate'],
+  edit_task: ['task', 'text'],
+  repair_board: ['content'],
   set_estimate: ['minutes'],
   note: ['title', 'noteType', 'text'],
   people_note: ['name', 'note'],
@@ -48,6 +50,7 @@ export function isValidAction(value: unknown): value is VaultAction {
     if (a.operation === 'set_field' && !a.field) return false;
   }
   if (a.type === 'set_estimate' && !(typeof a.minutes === 'number' && a.minutes > 0 && a.minutes <= 12 * 60)) return false;
+  if (a.type === 'repair_board' && typeof a.content !== 'string') return false;
   if (a.type === 'reschedule_task' && !(typeof a.newDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.newDate))) return false;
   return true;
 }
@@ -151,6 +154,10 @@ export function describeActions(actions: VaultAction[] | undefined): string {
           return `Marked "${action.task}" done.`;
         case 'add_task':
           return `Added "${action.text}" to ${action.column}.`;
+        case 'edit_task':
+          return `Changed the card to "${action.text}".`;
+        case 'repair_board':
+          return 'Repaired the board. Say /undoboard to put it back.';
         case 'note':
           return `Noted in "${action.title}".`;
         case 'people_note':

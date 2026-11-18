@@ -7,7 +7,7 @@
 
 import type { PendingConfigEdit, VaultAction } from '../config/types.js';
 import type { Store } from '../store/store.js';
-import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle } from '../vault/writer.js';
+import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle, editCardText } from '../vault/writer.js';
 import { handlePersonMention } from '../journal/people.js';
 import { handleLiteratureMention } from '../journal/literature.js';
 import { captureToNote } from '../journal/capture.js';
@@ -16,10 +16,13 @@ import { getLayout } from '../config/paths.js';
 import type { NoteChange } from './changes.js';
 import { createLogger } from '../utils/logger.js';
 import { vaultRel, type VaultOps } from '../vault/ops.js';
+import { repairBoard } from '../vault/repair.js';
 
 const logger = createLogger('actions');
 
 export const PENDING_EDIT_KEY = 'pending_config_edit';
+/** The board before the last repair_board, for /undoboard. */
+export const BOARD_BACKUP_KEY = 'board_repair_backup';
 const PENDING_EDIT_TTL_MS = 30 * 60 * 1000;
 
 /**
@@ -85,6 +88,24 @@ export async function executeVaultActions(
             board();
           }
           else fail(`I couldn't find "${action.task}" on the board, so nothing moved.`);
+          break;
+        }
+        case 'edit_task': {
+          const res = await editCardText(ops, vaultPath, action.task, action.text);
+          if (res === 'edited') board();
+          else if (res === 'not_found') fail(`I couldn't find "${action.task}" on the board, so nothing changed.`);
+          else if (res === 'ambiguous') fail(`More than one card is called "${action.task}", so I changed none. Which one did you mean?`);
+          else if (res === 'empty') fail(`That would leave "${action.task}" with no text, so nothing changed.`);
+          break;
+        }
+        case 'repair_board': {
+          const res = await repairBoard(ops, vaultPath, action.content);
+          if (!res.ok) {
+            fail(`I didn't save the board repair: ${res.problems.slice(0, 3).join('; ')}. The board is unchanged.`);
+          } else if (res.changed) {
+            await store.setSessionState(BOARD_BACKUP_KEY, JSON.stringify(res.backup));
+            board();
+          }
           break;
         }
         case 'note': {

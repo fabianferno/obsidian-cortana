@@ -128,13 +128,15 @@ ${OPEN_TAG}[{"type":"add_task","text":"Call the bank","column":"Backlog"}]${CLOS
 These are NOT tools and you do not need any tool for them. You perform an action simply by
 writing the block as text at the end of your reply. The plugin reads your reply, runs every
 action in the block, and confirms to the user. It always works, for any column on the board.
-Never tell the user you cannot add, move, complete or reschedule a card: write the block.
+Never tell the user you cannot add, move, complete, reschedule or edit a card, or fix the board: write the block.
 
 The block is never shown or spoken. Put a JSON array of one or more actions in it:
 - {"type":"move_task","task":"<exact card text>","from":"<column>","to":"<column>"}
 - {"type":"complete_task","task":"<exact card text>","from":"<column>"}
 - {"type":"add_task","text":"<card text>","column":"<column>"}
 - {"type":"reschedule_task","task":"<exact card text>","newDate":"YYYY-MM-DD"}
+- {"type":"edit_task","task":"<exact card text>","text":"<the card's new text>"} - rewrites a card in place to fix a typo, reword it or clean up bad formatting (a doubled "- [ ]", stray characters). Column, date and id stay; give only the words.
+- {"type":"repair_board","content":"<the whole corrected board file>"} - for board damage edit_task cannot fix: lines that are not proper cards (a "12|" prefix, an indented "- [ ]"), a second settings block, a card with two ids. Read the board file first, then send ALL of it back with only the broken parts fixed: keep every card, every ^id, every column heading, the frontmatter and the settings block. The plugin refuses a repair that loses any of them; the user can revert one with /undoboard. Say what you fixed.
 - {"type":"note","title":"<note name>","noteType":"<type tag: people|projects|org|concept|meeting|literature|personal|...>","text":"<what to record, in the user's words>"}
 - {"type":"update_memory","observation":"<durable observation about the user>"}
 - {"type":"set_estimate","minutes":<number>,"task":"<card in Doing, optional>"} - starts (or corrects) the focus timer for a card in Doing. Saying "30 minutes it is" does nothing without it.

@@ -19,7 +19,7 @@ export interface RemovedCardLocation {
 }
 
 export function extractCardId(rawLine: string): string | undefined {
-  return rawLine.match(/\s\^([a-z0-9]+)\s*$/)?.[1];
+  return rawLine.match(/\s\^([A-Za-z0-9-]+)\s*$/)?.[1];
 }
 
 /**

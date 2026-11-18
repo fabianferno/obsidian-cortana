@@ -230,6 +230,26 @@ describe('Agent', () => {
     expect(shown).toBe('Added "Call mom" to To Do.');
   });
 
+  it('saves a checked board repair from the engine, refuses a lossy one, and /undoboard reverts', async () => {
+    const file = join(vault, 'Kanban.md');
+    const before = readFileSync(file, 'utf-8');
+    const lossy = before.replace('- [ ] Gym ^bbb222\n', '');
+    reply = () => `Fixing it.<actions>${JSON.stringify([{ type: 'repair_board', content: lossy }])}</actions>`;
+    let shown = '';
+    await agent.handleUserMessage('fix the board', { onText: t => { shown += t; } });
+    expect(shown).toMatch(/didn't save the board repair: the card "Gym" would be lost/);
+    expect(readFileSync(file, 'utf-8')).toBe(before);
+
+    const fixed = before.replace('- [ ] Gym ^bbb222', '- [ ] Gym ^bbb222\n- [ ] Stretch');
+    reply = () => `Fixed.<actions>${JSON.stringify([{ type: 'repair_board', content: fixed }])}</actions>`;
+    await agent.handleUserMessage('fix the board');
+    expect(readFileSync(file, 'utf-8')).toMatch(/- \[ \] Stretch \^[a-f0-9]{6}/);
+
+    expect((await agent.handleUserMessage('/undoboard')).text).toMatch(/back to how it was/);
+    expect(readFileSync(file, 'utf-8')).toBe(before);
+    expect((await agent.handleUserMessage('/undoboard')).text).toMatch(/no board repair to undo/);
+  });
+
   it('handles /pause and /resume without the engine', async () => {
     const out = await agent.handleUserMessage('/pause');
     expect(out.text).toMatch(/Paused/);
@@ -345,6 +365,17 @@ describe('executeVaultActions', () => {
     const out = await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'reschedule_task', task: 'Gym', newDate: '2026-11-12' }]);
     expect(out).toEqual([{ text: 'Moved "Gym" to 2026-11-12.', ok: true }]);
     expect(readFileSync(join(vault, 'Kanban.md'), 'utf-8')).toContain('Gym @{2026-11-12}');
+  });
+
+  it('edits a card by title and reports a card it cannot find', async () => {
+    const changes: string[] = [];
+    const out = await executeVaultActions(vault, fsVaultOps(vault), store, [
+      { type: 'edit_task', task: 'Write intro', text: 'Write the intro' },
+      { type: 'edit_task', task: 'Nope', text: 'Yes' },
+    ], c => changes.push(`${c.kind} ${c.path}`));
+    expect(readFileSync(join(vault, 'Kanban.md'), 'utf-8')).toContain('- [ ] Write the intro ^aaa111');
+    expect(changes).toEqual(['updated Kanban.md']);
+    expect(out).toEqual([{ text: 'I couldn\'t find "Nope" on the board, so nothing changed.', ok: false }]);
   });
 
   it('says so when a card is not on the board', async () => {

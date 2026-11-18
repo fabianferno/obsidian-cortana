@@ -21,7 +21,8 @@ import { toIanaZone } from '../context/datetime.js';
 import { detectSignals } from '../brain/signals.js';
 import { buildSystemPrompt, buildTurn, type SpeechStyle } from '../brain/prompt-builder.js';
 import { ActionStreamFilter, describeActions, parseAgentReply } from '../brain/actions.js';
-import { executeVaultActions, getPendingConfigEdit } from './execute-actions.js';
+import { BOARD_BACKUP_KEY, executeVaultActions, getPendingConfigEdit } from './execute-actions.js';
+import { undoBoardRepair, type BoardBackup } from '../vault/repair.js';
 import {
   arePulsesSuppressed, calculateNextPulse, cancelPulse, isPulseScheduled, localDate, missedCheckpoint,
   resumePulses, schedulePulse, startCheckpoints, suppressPulses,
@@ -277,6 +278,17 @@ export class Agent {
         if (r) await this.reportNotePass(r);
       });
       return `Working through up to ${Math.max(1, this.settings.graduatePerDay)} capture notes now. I'll tell you when it's done.`;
+    }
+
+    // Puts the board back as it was before the last repair_board.
+    if (lower === '/undoboard') {
+      const raw = await this.store.getSessionState(BOARD_BACKUP_KEY);
+      if (!raw) return 'There is no board repair to undo.';
+      if (!(await undoBoardRepair(this.vaultOps, this.vaultPath, JSON.parse(raw) as BoardBackup))) {
+        return 'The board has changed since the repair, so I left it alone.';
+      }
+      await this.store.setSessionState(BOARD_BACKUP_KEY, '');
+      return 'The board is back to how it was before the repair.';
     }
 
     // Two-step board clear so a slip cannot wipe the board.

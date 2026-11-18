@@ -168,6 +168,8 @@ export type VaultAction =
   | { type: 'literature_note'; title: string; noteType: string; source: string; note: string }
   | { type: 'update_memory'; observation: string }
   | { type: 'reschedule_task'; task: string; newDate: string }
+  | { type: 'edit_task'; task: string; text: string }
+  | { type: 'repair_board'; content: string }
   | { type: 'set_estimate'; minutes: number; task?: string }
   | { type: 'propose_config_edit'; file: ConfigFile; section: string;
       operation: ConfigEditOperation; content: string; rationale: string;

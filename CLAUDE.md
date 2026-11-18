@@ -61,6 +61,9 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   `fileManager`; `fsVaultOps` is the fs version for tests. Writers are async and take `ops`.
 - `src/vault/notes.ts` - note shape helpers: find by name or alias, `## Timeline` append, the
   `> [!question] Cortana` callout (old `Voice Agent` callouts still recognized). `src/journal/capture.ts` - the `note` action writer.
+- `src/vault/repair.ts` - the `repair_board` action: the engine sends the whole corrected board,
+  `checkBoardRepair` refuses it if any card, id, column, frontmatter or settings would be lost or
+  known damage (line-number prefixes, doubled checkboxes, double ids) is left. `/undoboard` reverts.
 - `src/agent/execute-actions.ts` - runs actions through the tested writers. Config edits are
   gated: propose stages (30 min TTL), apply writes, discard drops.
 - `src/voice/` - `session.ts` (utterance -> STT -> agent -> sentence chunks -> TTS -> player,

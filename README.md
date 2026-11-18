@@ -43,8 +43,10 @@ breaks.
 The engine runs with your vault as its working directory, so it can read, search and edit
 notes with its own tools. Changes to the kanban board and the agent's own files go through
 "agent actions": the engine ends its reply with a small JSON block, and the plugin applies it
-with tested writers that keep the board format intact. Edits to the agent's personality files
-are proposed first and only applied after you say yes.
+with tested writers that keep the board format intact. To fix a damaged board, the engine sends
+back the whole corrected file; the plugin saves it only if every card, id, column and the Kanban
+settings are still there, and `/undoboard` puts the old version back. Edits to the agent's
+personality files are proposed first and only applied after you say yes.
 
 The agent never reads or writes your daily notes folder. With Claude Code this is enforced
 with permission rules, not just instructions.
@@ -125,7 +127,7 @@ Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automa
 - **Type** in the box at the bottom instead of talking.
 - `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.
   `/status` shows whether the agent is paused. `/clearboard` empties Done and Archive (asks
-  first). `/graduate` runs the daily note pass now.
+  first). `/graduate` runs the daily note pass now. `/undoboard` reverts the last board repair.
 
 Things to try: "What should I work on?", "Add call the bank to To Do", "Push the gym card to
 Friday", "I'm done with the intro", "What do I know about Priya?", "From now on, never use

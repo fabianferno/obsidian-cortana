@@ -38,7 +38,7 @@ export function parseInboxKanban(content: string): KanbanBoard {
       // end of line, so parsing the note first would swallow the id into it.
       let textToParse = rawLine;
       let id: string | undefined;
-      const idMatch = textToParse.match(/\s+\^([a-z0-9]+)\s*$/);
+      const idMatch = textToParse.match(/\s+\^([A-Za-z0-9-]+)\s*$/);
       if (idMatch) {
         id = idMatch[1];
         textToParse = textToParse.replace(idMatch[0], '');
