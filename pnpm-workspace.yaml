@@ -7,3 +7,8 @@ allowBuilds:
   onnxruntime-node: false
   protobufjs: false
   sharp: false
+
+# sharp is an image library in transformers.js's Node build. The plugin bundles the web
+# build and never loads it, so drop it rather than carry its libvips advisories.
+overrides:
+  sharp: '-'
