@@ -2,6 +2,15 @@
 
 Open threads to pick up later. Newest first.
 
+## Declarative settings (getSettingDefinitions)
+
+From the community review of 0.3.6 (2026-11-19): the settings tab uses `display()`, which
+is deprecated since Obsidian 1.13.0, so our settings do not show up in Obsidian's settings
+search. Moving to `getSettingDefinitions()` needs either `minAppVersion` 1.13.0 or keeping
+`display()` as a fallback, and the tab redraws itself when the engine or voice changes, so
+check the declarative API handles fields that depend on other fields. Not urgent: `display()`
+still works.
+
 ## Product brainstorm: what to offer before the directory launch (paused 2026-11-16)
 
 Where we stopped: the first question was still open.

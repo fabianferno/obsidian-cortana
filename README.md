@@ -21,6 +21,11 @@ let it brief you in the morning and wind you down in the evening.
   rewritten (a rewrite that drops any of your lines is refused), facts come only from your
   vault, and every move keeps your links working.
 
+Because it drives a CLI, Cortana runs programs on your computer and keeps state in files
+outside your vault. The plugin's own writes inside the vault go through Obsidian's API; the
+engine edits files the way it would in a terminal, under its own permission rules. See
+[Programs it runs](#programs-it-runs) and [Files outside your vault](#files-outside-your-vault).
+
 Desktop only (macOS, Windows, Linux). Early release (0.2.0): expect rough edges, and please
 [open an issue](https://github.com/fabianferno/obsidian-cortana/issues) when something
 breaks.

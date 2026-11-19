@@ -4,7 +4,11 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 0 !important;
+}
+
+/* Beat the theme's .view-content padding by specificity. */
+.workspace-leaf-content .view-content.cortana-root {
+  padding: 0;
 }
 
 .cortana-header {
@@ -155,8 +159,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .cortana-shimmer::before { animation: none !important; }
-  .cortana-stream-w { animation: none !important; }
+  .cortana-shimmer::before { animation: none; }
+  .cortana-stream-w { animation: none; }
 }
 
 .cortana-notice {
