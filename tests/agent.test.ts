@@ -116,6 +116,70 @@ describe('Agent', () => {
     expect(seen).toEqual(['updated Neurons/Caleb.md', 'created Inbox/Ambition debt.md', 'updated Kanban.md']);
   });
 
+  it('sends what is on screen with a reply, and a failing workspace never breaks the turn', async () => {
+    agent.stop();
+    const prompts: string[] = [];
+    let fail = false;
+    const watching = new Agent(vault, store, (sys) => {
+      const e = new FakeEngine(sys, () => 'Sure.');
+      e.turn = async (prompt, onEvent) => { prompts.push(prompt); onEvent({ type: 'text', text: 'Sure.' }); return { interrupted: false }; };
+      return e;
+    }, SETTINGS, (m) => delivered.push(m), undefined, () => {
+      if (fail) throw new Error('no workspace');
+      return { active: { path: 'Projects/Acme.md', kind: 'note', openForMin: 4 }, recent: [], obsidianFocused: true };
+    });
+    await watching.handleUserMessage('summarize this');
+    expect(prompts[0]).toContain('- Open: "Projects/Acme.md" (4min)');
+    fail = true;
+    const out = await watching.handleUserMessage('and now?');
+    expect(out.text).toBe('Sure.');
+    expect(prompts[1]).not.toContain('# On screen');
+    watching.stop();
+  });
+
+  it('checks drift once per focus session, and a SKIP answer says nothing', async () => {
+    agent.stop();
+    const noon = new Date();
+    noon.setHours(12, 0, 0, 0);
+    vi.useFakeTimers({ toFake: ['Date'], now: noon });
+    try {
+      const prompts: string[] = [];
+      let answer = 'SKIP';
+      const watching = new Agent(vault, store, (sys) => {
+        const e = new FakeEngine(sys, () => answer);
+        e.turn = async (prompt, onEvent) => { prompts.push(prompt); onEvent({ type: 'text', text: answer }); return { interrupted: false }; };
+        return e;
+      }, { ...SETTINGS, pulses: true }, (m) => delivered.push(m), undefined, () => ({
+        recent: [], obsidianFocused: true, typing: [{ path: 'Ideas/Podcast.md', minutes: 12 }],
+      }));
+      await watching.start();
+      const start = (text: string) => store.createFocusSession({
+        taskText: text, rawTaskLine: `- [ ] ${text}`, estimatedMinutes: 60, estimateSource: 'user',
+        startedAt: new Date(noon.getTime() - 30 * 60_000).toISOString(), deadlineAt: new Date(noon.getTime() + 30 * 60_000).toISOString(),
+      });
+      await start('Write Acme pitch');
+      delivered.length = 0;
+
+      await watching.checkDrift();
+      expect(prompts.at(-1)).toContain('# Scheduled check-in: focus_drift');
+      expect(prompts.at(-1)).toContain('- Focus timer: "Write Acme pitch" (running 30min)');
+      expect(prompts.at(-1)).toContain('"Ideas/Podcast.md" (12min)');
+      expect(delivered).toEqual([]);
+
+      const turns = prompts.length;
+      await watching.checkDrift();
+      expect(prompts.length).toBe(turns);
+
+      answer = 'Podcast notes have you, want to park Plan launch and switch the timer?';
+      await start('Plan launch');
+      await watching.checkDrift();
+      expect(delivered.map(d => d.source)).toEqual(['focus-drift']);
+      watching.stop();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('leaves the filing rule out when capture is off', () => {
     const config = loadAgentConfig(join(vault, 'agent'));
     expect(buildSystemPrompt(config, { capture: false })).not.toContain('Filing (the note action)');

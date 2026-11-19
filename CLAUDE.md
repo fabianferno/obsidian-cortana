@@ -37,6 +37,12 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - `src/plugin/` - Obsidian side. `main.ts` wires everything; `settings.ts` (settings + tab,
   API keys via `app.secretStorage`); `view.ts` (side panel); `transcript.ts` (panel model,
   implements `VoiceUi`);
+  `workspace-watcher.ts` (feeds `src/workspace/trail.ts`: the open note, cursor heading,
+  selection and recent notes, sent as an "On screen" section on reply turns only; daily notes
+  and the board are filtered out, and the prompt says to use it only when the user points at it.
+  The trail also counts minutes typed per note; `src/focus/drift.ts` uses that for gentler
+  "time's up" nudges when the user is in the card's note, and one `focus_drift` check-in per
+  session (the engine may answer SKIP) when they type 10+ minutes in unrelated notes);
   `global-shortcut.ts` (system-wide "Talk from anywhere" key through Electron's globalShortcut via
   @electron/remote; fails soft; the plugin runs it as one question, then the mic closes).
 - `src/agent/agent.ts` - the agent, UI-independent. One engine conversation, turns run one at

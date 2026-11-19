@@ -29,6 +29,8 @@ export interface CortanaSettings {
   capture: boolean;
   graduate: boolean;
   graduatePerDay: number;
+  /** Show the agent which note is open and what is selected (never daily notes or the board). */
+  seeWorkspace: boolean;
 
   stt: SttChoice;
   tts: TtsChoice;
@@ -74,6 +76,7 @@ export const DEFAULT_SETTINGS: CortanaSettings = {
   // Off until the user turns it on: it moves notes, so it should never start by surprise.
   graduate: false,
   graduatePerDay: 5,
+  seeWorkspace: true,
 
   stt: 'local',
   tts: 'system',

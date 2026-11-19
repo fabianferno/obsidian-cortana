@@ -125,6 +125,11 @@ Updating from 0.1.x: the old Kokoro voice model is deleted from the cache automa
   future Obsidian update could break it.
 - **Stop** (or the **Stop speaking** command): cut the agent off.
 - **Type** in the box at the bottom instead of talking.
+- **It knows what you have open.** Each message carries the note in front of you, the heading
+  your cursor is under, any text you selected and the notes you had open in the last half hour.
+  So "summarize this", "make a card for this" or "who is this again?" just work. It is
+  background only: Cortana uses it when your words point at it and otherwise never brings it
+  up. Daily notes and the board are never included. Turn it off with **See what you have open**.
 - Type `/` in the box for a menu of commands (arrow keys, Enter to run, Tab to fill in).
   `/pause` and `/resume` turn check-ins off and on. `/clear` starts a fresh conversation.
   `/status` shows whether the agent is paused. `/clearboard` empties Done and Archive (asks
@@ -143,6 +148,7 @@ emoji with me".
 | Evening (20:00) | What got done, one question about the day. |
 | In between | Short adaptive nudges. More often with deadlines, less when you are busy or ignoring them. |
 | Board changes | A card moved into Doing starts a focus session ("how long will it take?"). Finishing, parking or abandoning it is noticed. A card stuck in Doing for 7 days goes back to Backlog. |
+| During a focus session | When time is up and you are in the card's note, the nudge asks how much longer instead of what is blocking you. If you spend 10+ minutes of a session typing in notes unrelated to the card, Cortana checks once whether those notes serve the card, and says one light sentence only if they don't. Needs **See what you have open** and **Nudges between check-ins**. |
 
 ## Your notes
 

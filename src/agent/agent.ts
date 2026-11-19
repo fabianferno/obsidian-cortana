@@ -19,7 +19,7 @@ import { ensureAgentFiles } from '../config/templates.js';
 import { assembleContext } from '../context/provider.js';
 import { toIanaZone } from '../context/datetime.js';
 import { detectSignals } from '../brain/signals.js';
-import { buildSystemPrompt, buildTurn, type SpeechStyle } from '../brain/prompt-builder.js';
+import { buildSystemPrompt, buildTurn, type SpeechStyle, type TurnOptions } from '../brain/prompt-builder.js';
 import { ActionStreamFilter, describeActions, parseAgentReply } from '../brain/actions.js';
 import { BOARD_BACKUP_KEY, executeVaultActions, getPendingConfigEdit } from './execute-actions.js';
 import { undoBoardRepair, type BoardBackup } from '../vault/repair.js';
@@ -28,6 +28,8 @@ import {
   resumePulses, schedulePulse, startCheckpoints, suppressPulses,
   type CheckpointKind, type CheckpointTimes,
 } from '../checkins/scheduler.js';
+import type { WorkspaceSnapshot } from '../workspace/trail.js';
+import { detectDrift, isOnTask } from '../focus/drift.js';
 import { FocusTracker, extractCardId, locateRemovedCard } from '../focus/tracker.js';
 import { checkGuard } from '../focus/guard.js';
 import { parseBareEstimate, parseTimeEstimate } from '../focus/estimator.js';
@@ -116,9 +118,14 @@ export class Agent {
     private settings: AgentSettings,
     private readonly deliver: (m: AgentMessage) => void,
     private readonly vaultOps: VaultOps = fsVaultOps(vaultPath),
+    /** What the user has open in Obsidian, or null when off or nothing is open. */
+    private readonly workspace: () => WorkspaceSnapshot | null = () => null,
   ) {
     this.config = loadAgentConfig(agentDir(vaultPath));
-    this.focus = new FocusTracker(store, (text, source) => this.notify(text, source ?? 'focus'), () => this.getContext());
+    this.focus = new FocusTracker(store, (text, source) => this.notify(text, source ?? 'focus'), () => this.getContext(), (session) => {
+      const snap = this.readWorkspace();
+      return !!snap && isOnTask(session, snap);
+    });
   }
 
   // --- lifecycle ---
@@ -237,6 +244,7 @@ export class Agent {
         userText: trimmed,
         spoken: opts.spoken,
         columns: this.readBoard()?.columnOrder,
+        workspace: this.readWorkspace(),
       });
       const result = await this.runEngineTurn(turn, opts);
       if (!result.interrupted && !result.error) await this.scheduleAdaptivePulse(context, 0);
@@ -486,7 +494,7 @@ export class Agent {
   }
 
   /** A check-in the agent starts: build the turn, run it, deliver the result. */
-  private async runProactive(kind: Exclude<CheckinType, 'reply'>, source: string): Promise<string | null> {
+  private async runProactive(kind: Exclude<CheckinType, 'reply'>, source: string, extra: Partial<Pick<TurnOptions, 'drift'>> = {}): Promise<string | null> {
     if (!this.running || (await this.isPaused())) return null;
     try {
       const report = kind === 'morning_checkpoint' || kind === 'startup' ? await this.secondBrainReport() : undefined;
@@ -500,10 +508,12 @@ export class Agent {
           pendingEdit: await getPendingConfigEdit(this.store),
           columns: this.readBoard()?.columnOrder,
           secondBrain: report,
+          ...extra,
         });
         return this.runEngineTurn(turn);
       });
-      if (outcome.error || !outcome.text) return null;
+      // A check-in may decide there is nothing worth saying.
+      if (outcome.error || !outcome.text || /^skip\.?$/i.test(outcome.text.trim())) return null;
       if (report) await this.clearSecondBrainReport();
       await this.notify(outcome.text, source, { changes: outcome.changes });
       return outcome.text;
@@ -578,6 +588,16 @@ export class Agent {
     return assembleContext(this.vaultPath, this.config, this.store);
   }
 
+  /** Never lets a workspace glitch break a reply. */
+  private readWorkspace(): WorkspaceSnapshot | null {
+    try {
+      return this.workspace();
+    } catch (err) {
+      logger.error('Reading the workspace failed', err);
+      return null;
+    }
+  }
+
   private async signals(context: ContextData) {
     const history = await this.store.getMessages(20, new Date(Date.now() - 24 * 60 * 60 * 1000));
     return detectSignals(context.vault, history, {} as never, {} as never);
@@ -619,6 +639,31 @@ export class Agent {
     if (next) schedulePulse(next, () => this.runPulse());
   }
 
+  /**
+   * One light check per focus session when the user types in notes unrelated to the
+   * timed card. The engine may answer SKIP when the notes serve the card after all.
+   * Public for tests.
+   */
+  async checkDrift(now = Date.now()): Promise<void> {
+    if (!this.running || !this.settings.pulses || this.isQuietHours() || (await this.isPaused())) return;
+    const snap = this.readWorkspace();
+    if (!snap) return;
+    const sessions = await this.store.getActiveSessions();
+    const checked = asArray(parseJson((await this.store.getSessionState('drift_checked')) ?? '[]'))
+      .filter((n): n is number => typeof n === 'number');
+    const drift = detectDrift(sessions, snap, now, checked);
+    if (!drift) return;
+    const active = new Set(sessions.map(s => s.id));
+    await this.store.setSessionState('drift_checked', JSON.stringify([...checked.filter(id => active.has(id)), drift.session.id]));
+    await this.runProactive('focus_drift', 'focus-drift', {
+      drift: {
+        task: drift.session.taskText,
+        runningMin: Math.round((now - new Date(drift.session.startedAt).getTime()) / 60000),
+        notes: drift.notes,
+      },
+    });
+  }
+
   /** Re-arms the pulse loop if it went idle (after quiet hours, a backoff, a failure). */
   private startWatchdog(): void {
     const tick = async () => {
@@ -645,7 +690,10 @@ export class Agent {
     const board = this.readBoard();
     const initial = (board?.columns['Doing'] || []).map(t => t.rawLine || t.text);
     void this.store.setSessionState('kanban_doing_snapshot', JSON.stringify(initial));
-    this.kanbanTimer = window.setInterval(() => void this.pollKanban(), 2 * 60 * 1000);
+    this.kanbanTimer = window.setInterval(() => {
+      void this.pollKanban();
+      void this.checkDrift();
+    }, 2 * 60 * 1000);
   }
 
   /** Diffs the Doing column against the last poll. Public for tests. */

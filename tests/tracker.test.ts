@@ -136,6 +136,18 @@ describe('FocusTracker', () => {
       expect(mockSendMessage).toHaveBeenCalledTimes(1);
       vi.useRealTimers();
     });
+
+    it('drops "what is blocking you" when the user is in the card\'s note', async () => {
+      vi.useFakeTimers();
+      const inIt = new FocusTracker(store as unknown as Store, mockSendMessage, mockGetContext, () => true);
+      await inIt.startSession('Task', '- [ ] Task', 1, 'user');
+      await vi.advanceTimersByTimeAsync(16 * 60 * 1000 + 200);
+      const texts = mockSendMessage.mock.calls.map(c => c[0] as string);
+      expect(texts[0]).toContain('mid-flow');
+      expect(texts[1]).not.toContain('blocking');
+      inIt.shutdown();
+      vi.useRealTimers();
+    });
   });
 
   describe('diffDoingTasks', () => {

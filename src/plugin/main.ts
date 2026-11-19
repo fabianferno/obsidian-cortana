@@ -28,6 +28,7 @@ import { elevenLabsVoices, sonioxVoices, type VoiceOption } from '../voice/voice
 import type { SpeechToText, TextToSpeech } from '../voice/types.js';
 import { Transcript } from './transcript.js';
 import { GlobalShortcut } from './global-shortcut.js';
+import { WorkspaceWatcher } from './workspace-watcher.js';
 import { playCue } from '../voice/cue.js';
 import { VIEW_TYPE, CortanaView } from './view.js';
 import { DEFAULT_SETTINGS, CortanaSettingTab, mergeSettings, parseExtraArgs, type CortanaSettings } from './settings.js';
@@ -56,6 +57,7 @@ export default class CortanaPlugin extends Plugin {
   private unloaded = false;
   private player = new Player();
   private mic = new Mic();
+  private watcher?: WorkspaceWatcher;
   private shortcut = new GlobalShortcut(() => void this.talkFromAnywhere());
   /** Listening for one question from the system-wide shortcut; the mic closes after it. */
   private oneShot = false;
@@ -100,6 +102,8 @@ export default class CortanaPlugin extends Plugin {
     // Engine lookup and agent start can take a moment (login shell, files):
     // do it once the workspace is ready so Obsidian's startup is not delayed.
     this.app.workspace.onLayoutReady(() => {
+      this.watcher = new WorkspaceWatcher(this.app);
+      this.watcher.register(this);
       const { boardPath, dailyFolder } = getLayout();
       if (!existsSync(boardFile(this.vaultPath))) {
         this.warnOnce(`board:${boardPath}`, `Cortana: no Kanban board at "${boardPath}". Set the board path in the plugin settings.`);
@@ -250,7 +254,7 @@ export default class CortanaPlugin extends Plugin {
       this.rebuildVoice();
       this.agent = new Agent(this.vaultPath, this.store, this.engineFactory(), this.agentSettings(), (m) => {
         void this.session?.proactive(m.text, m.source, { changes: m.changes, speak: m.speak });
-      }, this.vaultOps());
+      }, this.vaultOps(), () => (this.settings.seeWorkspace ? this.watcher?.snapshot(getLayout()) ?? null : null));
       await this.agent.start();
       if (this.unloaded) this.agent.stop();
     } catch (err) {

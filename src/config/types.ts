@@ -152,7 +152,8 @@ export type CheckinType =
   | 'midday_checkpoint'
   | 'evening_checkpoint'
   | 'reply'
-  | 'startup';
+  | 'startup'
+  | 'focus_drift';
 
 export interface AgentReply {
   message: string;

@@ -62,11 +62,14 @@ export class FocusTracker {
   private store: Store;
   private sendMessage: SendMessageFn;
   private getContext: () => Promise<ContextData>;
+  /** True when the user looks to be in the card's note right now. */
+  private onTask: (session: FocusSession) => boolean;
 
-  constructor(store: Store, sendMessage: SendMessageFn, getContext: () => Promise<ContextData>) {
+  constructor(store: Store, sendMessage: SendMessageFn, getContext: () => Promise<ContextData>, onTask: (session: FocusSession) => boolean = () => false) {
     this.store = store;
     this.sendMessage = sendMessage;
     this.getContext = getContext;
+    this.onTask = onTask;
   }
 
   async startSession(taskText: string, rawTaskLine: string, estimatedMinutes: number, estimateSource: 'user' | 'llm', cardId?: string): Promise<FocusSession> {
@@ -183,7 +186,12 @@ export class FocusTracker {
       await this.store.updateFocusSession(session.id, { escalationLevel: level });
 
       const totalMinutes = Math.round((Date.now() - new Date(session.startedAt).getTime()) / 60000);
-      const messages: Record<number, string> = {
+      // In the card's note right now: the user is working, not stuck, so no "what's blocking you".
+      const messages: Record<number, string> = this.onTask(session) ? {
+        1: `Time's up on ${session.taskText}, and you look mid-flow. How much longer?`,
+        2: `Still deep in ${session.taskText}. Want more time, or scope it down to finish?`,
+        3: `${formatDuration(totalMinutes)} on ${session.taskText} so far. Commit to a finish time?`,
+      } : {
         1: `Time's up on ${session.taskText}. Done, or how much longer?`,
         2: `Still on ${session.taskText}? What's blocking you? Want to scope it down?`,
         3: `You've been on ${session.taskText} for ${formatDuration(totalMinutes)}. Park it and switch, or commit to a finish time?`,

@@ -93,6 +93,7 @@ export class CortanaSettingTab extends PluginSettingTab {
         s.extraArgs = v;
         await save({ engine: true });
       }));
+    this.toggle(containerEl, 'See what you have open', 'Cortana knows which note is open and what you selected, so "summarize this" works. It brings it up only when it helps. During a focus session it also notices which notes you type in. Daily notes and the board are never included.', 'seeWorkspace');
 
     // --- voice ---
     new Setting(containerEl).setName('Voice').setHeading();

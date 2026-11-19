@@ -17,6 +17,7 @@ import { getLayout } from '../config/paths.js';
 import { OPEN_TAG, CLOSE_TAG } from './actions.js';
 import { NAME, USER_TITLE } from '../brand.js';
 import { CUE_TAGS } from '../speech/cues.js';
+import type { WorkspaceSnapshot } from '../workspace/trail.js';
 
 export interface SystemPromptOptions {
   /** File what is worth keeping from conversations into the vault (default on). */
@@ -164,7 +165,16 @@ ${capture ? `- Filing (the note action): when the user tells you something worth
 # Messages from the plugin
 Every message starts with a [Context] block with the current time, board and signals. It is
 the truth for this turn; anything older in the conversation may be stale. Some messages are
-scheduled check-ins rather than the user speaking: write the check-in it asks for.`;
+scheduled check-ins rather than the user speaking: write the check-in it asks for.
+
+# What is on screen
+A reply may carry an "On screen" section: the note the user has open, text they selected, notes
+they had open earlier. It is quiet background, like a colleague glancing at their screen:
+- Use it when the user points at something ("this", "here", "this note", "summarize this", "add
+  this to the board") or when it plainly answers what they asked. Selected text is usually what
+  "this" means.
+- Otherwise act as if you cannot see it. Never announce or comment on what is open ("I see you
+  have X open"), and do not read the note unless the request needs what is in it.`;
 }
 
 export interface TurnOptions {
@@ -181,6 +191,32 @@ export interface TurnOptions {
   columns?: string[];
   /** What the daily note pass did since the user was last told (morning, startup). */
   secondBrain?: { moved: string[]; asked: number; trashed: string[]; waiting: number };
+  /** What the user has open in Obsidian (reply turns only). */
+  workspace?: WorkspaceSnapshot | null;
+  /** A focus_drift check-in: the timed card and the notes typed in instead. */
+  drift?: { task: string; runningMin: number; notes: { path: string; minutes: number }[] };
+}
+
+function formatDrift(d: NonNullable<TurnOptions['drift']>): string {
+  return `\n# Drift
+- Focus timer: "${d.task}" (running ${formatDuration(d.runningMin)})
+- Typed in during the last 20 minutes instead: ${d.notes.map(n => `"${n.path}" (${formatDuration(n.minutes)})`).join(', ')}
+`;
+}
+
+const KIND_LABEL: Record<string, string> = { board: 'kanban board, ', canvas: 'canvas, ', pdf: 'PDF, ', other: '' };
+
+function formatWorkspace(w: WorkspaceSnapshot): string {
+  const lines: string[] = [];
+  if (w.active) {
+    const a = w.active;
+    const age = a.openForMin < 1 ? 'just opened' : formatDuration(a.openForMin);
+    lines.push(`- Open: "${a.path}" (${KIND_LABEL[a.kind] ?? ''}${age}${a.heading ? `, under "${a.heading}"` : ''})`);
+    if (a.selection) lines.push(`- Selected text:\n"""\n${a.selection}\n"""`);
+  }
+  if (w.recent.length) lines.push(`- Earlier: ${w.recent.map(r => `"${r.path}" (${formatDuration(r.minutes)})`).join(', ')}`);
+  if (!w.obsidianFocused) lines.push('- Obsidian is in the background: "this" may mean something outside it.');
+  return `\n# On screen (background: use only if the message depends on it, never mention it otherwise)\n${lines.join('\n')}\n`;
 }
 
 function formatSecondBrain(s: NonNullable<TurnOptions['secondBrain']>): string {
@@ -253,12 +289,19 @@ end of your reply, using the agent actions from your instructions. No tool is ne
 
   if (kind === 'reply') {
     const how = opts.spoken ? 'said (speech recognition, may contain misheard words)' : 'typed';
-    return `${contextBlock}
+    return `${contextBlock}${opts.workspace ? formatWorkspace(opts.workspace) : ''}
 # Reply rules
 ${getCheckinInstructions('reply')}
 
 The user ${how}:
 ${opts.userText ?? ''}`;
+  }
+
+  if (kind === 'focus_drift') {
+    return `${contextBlock}${opts.drift ? formatDrift(opts.drift) : ''}
+# Scheduled check-in: focus_drift
+This message is from the plugin, not the user. ${getCheckinInstructions(kind)}
+Write SKIP or your one sentence now.`;
   }
 
   return `${contextBlock}
@@ -304,6 +347,8 @@ export function getCheckinInstructions(type: CheckinType): string {
       return 'Wind down the day in 3-4 sentences max. Acknowledge what got done. Then ask ONE question about the day\'s work: a task that stalled, a habit, or what tomorrow needs. Just one. Let the conversation unfold naturally from there. For each completed focus session today, briefly note estimated vs actual time if relevant.';
     case 'startup':
       return 'You just came online (Obsidian was opened). Generate a short greeting (max 4 sentences). Mention what time it is and give a quick snapshot: top priority task from the board, next calendar event if any, and one thing worth knowing (a deadline, a parked task). End with something that invites the user to jump in. Keep the energy matched to the time of day, chill if it\'s late, energetic if it\'s morning.';
+    case 'focus_drift':
+      return 'The user has a focus timer running on a card, but for a while they have been typing in other notes (see "# Drift"). Decide whether those notes plausibly serve the card: the same project, research or a sub-task for it, a meeting about it. If they do, or you are not sure, reply with exactly SKIP and nothing else. Otherwise write ONE short, light sentence that names the card and the other note (by name, not path) and offers to switch the timer or park the card. No guilt, no lecture, no actions block.';
     case 'reply':
       return `Respond DIRECTLY to the user's LATEST message. Rules:
 - Answer the question actually asked. Do not pivot to a different topic.

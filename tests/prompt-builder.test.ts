@@ -50,3 +50,30 @@ describe('buildTurn second brain report', () => {
     expect(text).toContain("- Notes waiting on the user's answer: 110");
   });
 });
+
+describe('buildTurn on screen section', () => {
+  const workspace = {
+    active: { path: 'Projects/Acme pitch.md', kind: 'note' as const, openForMin: 12, heading: 'Pricing', selection: 'Tiered at $9' },
+    recent: [{ path: 'People/Ravi.md', minutes: 5 }],
+    obsidianFocused: true,
+  };
+
+  it('shows the open note, selection and earlier notes on a reply', () => {
+    const text = buildTurn('reply', config, context(vault), [], { userText: 'summarize this', workspace });
+    expect(text).toContain('# On screen');
+    expect(text).toContain('- Open: "Projects/Acme pitch.md" (12min, under "Pricing")');
+    expect(text).toContain('"""\nTiered at $9\n"""');
+    expect(text).toContain('- Earlier: "People/Ravi.md" (5min)');
+    expect(text).not.toContain('in the background');
+  });
+
+  it('says when Obsidian is not in front', () => {
+    const text = buildTurn('reply', config, context(vault), [], { workspace: { ...workspace, obsidianFocused: false } });
+    expect(text).toContain('Obsidian is in the background');
+  });
+
+  it('leaves it out of check-ins and when there is nothing', () => {
+    expect(buildTurn('pulse', config, context(vault), [], { workspace })).not.toContain('# On screen');
+    expect(buildTurn('reply', config, context(vault), [], { workspace: null })).not.toContain('# On screen');
+  });
+});
