@@ -137,6 +137,7 @@ The block is never shown or spoken. Put a JSON array of one or more actions in i
 - {"type":"add_task","text":"<card text>","column":"<column>"}
 - {"type":"reschedule_task","task":"<exact card text>","newDate":"YYYY-MM-DD"}
 - {"type":"edit_task","task":"<exact card text>","text":"<the card's new text>"} - rewrites a card in place to fix a typo, reword it or clean up bad formatting (a doubled "- [ ]", stray characters). Column, date and id stay; give only the words.
+- {"type":"create_board"} - only when there is no board and the user said yes to making one. Makes Backlog, To Do, Doing and Done at the board path.
 - {"type":"repair_board","content":"<the whole corrected board file>"} - for board damage edit_task cannot fix: lines that are not proper cards (a "12|" prefix, an indented "- [ ]"), a second settings block, a card with two ids. Read the board file first, then send ALL of it back with only the broken parts fixed: keep every card, every ^id, every column heading, the frontmatter and the settings block. The plugin refuses a repair that loses any of them; the user can revert one with /undoboard. Say what you fixed.
 - {"type":"note","title":"<note name>","noteType":"<type tag: people|projects|org|concept|meeting|literature|personal|...>","text":"<what to record, in the user's words>"}
 - {"type":"update_memory","observation":"<durable observation about the user>"}
@@ -234,9 +235,11 @@ function formatCoordinates(c: { lat: number; lng: number }): string {
 }
 
 function boardMissingNote(boardPath: string): string {
-  return `- NOT FOUND: there is no board file at "${boardPath}". You cannot see the user's tasks.
-  Do NOT say the board or any column is empty. Tell the user the board file was not found and to set
-  "Kanban board" in the Cortana settings to the path of their board note.`;
+  return `- NO BOARD: there is no board file at "${boardPath}", so you cannot see the user's tasks.
+  Never say the board or a column is empty. Do not bring it up on your own. When the user wants to
+  track a task, asks what to work on, or asks about the board, say once that they have no board yet and
+  offer to make one (or, if they keep it elsewhere, to set "Kanban board" in the Cortana settings).
+  On their yes, emit create_board, then add any task they mentioned with add_task in the same block.`;
 }
 
 export function buildTurn(

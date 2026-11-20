@@ -32,6 +32,14 @@ import { WorkspaceWatcher } from './workspace-watcher.js';
 import { playCue } from '../voice/cue.js';
 import { VIEW_TYPE, CortanaView } from './view.js';
 import { DEFAULT_SETTINGS, CortanaSettingTab, mergeSettings, parseExtraArgs, type CortanaSettings } from './settings.js';
+import { McpHandler, newToken, startMcpServer, type RunningServer } from '../mcp/server.js';
+import { appendAgentLog } from '../vault/agent-log.js';
+import { createBoard } from '../vault/writer.js';
+import { localDate } from '../checkins/scheduler.js';
+import type { NoteChange } from '../agent/changes.js';
+
+/** The bearer token other AIs use, kept in Obsidian's secret storage. */
+const MCP_TOKEN_SECRET = 'cortana-mcp-token';
 
 declare const ORT_WASM_SHA256: string;
 declare const TRANSFORMERS_VERSION: string;
@@ -68,6 +76,9 @@ export default class CortanaPlugin extends Plugin {
   private saveTimer?: number;
   private pendingState?: StoreData;
   private stateFile = '';
+  private mcp?: RunningServer;
+  /** Why the server for other AIs is not running though turned on, or ''. */
+  mcpError = '';
   /** Setup warnings already shown, keyed by the path they were about, so each shows once. */
   private warned: string[] = [];
 
@@ -91,12 +102,14 @@ export default class CortanaPlugin extends Plugin {
     this.addCommand({ id: 'toggle-listening', name: 'Talk (start or stop listening)', callback: () => void this.toggleListening() });
     this.addCommand({ id: 'stop', name: 'Stop speaking', callback: () => this.interrupt() });
     this.addCommand({ id: 'new-conversation', name: 'New conversation', callback: () => void this.newConversation() });
+    this.addCommand({ id: 'create-board', name: 'Create a board', callback: () => void this.makeBoard() });
 
     const shortcutError = this.applyGlobalShortcut();
     if (shortcutError) new Notice(`Cortana shortcut: ${shortcutError} Change it in the plugin settings.`, 10000);
 
-    this.transcript.onProactive = (text) => {
-      if (!this.panelVisible()) new Notice(text, 15000);
+    this.transcript.onProactive = (text, source) => {
+      // What other AIs file shows in the panel only; a popup per write would be noise.
+      if (!this.panelVisible() && source !== 'outside-ai') new Notice(text, 15000);
     };
 
     // Engine lookup and agent start can take a moment (login shell, files):
@@ -106,7 +119,7 @@ export default class CortanaPlugin extends Plugin {
       this.watcher.register(this);
       const { boardPath, dailyFolder } = getLayout();
       if (!existsSync(boardFile(this.vaultPath))) {
-        this.warnOnce(`board:${boardPath}`, `Cortana: no Kanban board at "${boardPath}". Set the board path in the plugin settings.`);
+        this.warnOnce(`board:${boardPath}`, `Cortana: no board at "${boardPath}". Ask Cortana to make one, run "Cortana: Create a board", or set the path of yours in the plugin settings.`);
       }
       if (dailyFolder && !existsSync(path.join(this.vaultPath, dailyFolder))) {
         this.warnOnce(`daily:${dailyFolder}`, `Cortana: no daily notes folder at "${dailyFolder}", so the agent cannot keep out of your daily notes. Fix it in the plugin settings.`);
@@ -125,6 +138,7 @@ export default class CortanaPlugin extends Plugin {
     this.shortcut.clear();
     this.clearOneShot();
     this.agent?.stop();
+    void this.mcp?.close();
     this.mic.stop();
     this.player.dispose();
     this.localWorker?.dispose();
@@ -246,6 +260,8 @@ export default class CortanaPlugin extends Plugin {
       this.env = await shellEnv();
       if (this.unloaded) return;
       this.store = this.loadState();
+      // Other AIs need only the vault and the state, not the engine.
+      await this.applyMcp();
       this.session = new VoiceSession(
         { handleUserMessage: (t, o) => this.requireAgent().handleUserMessage(t, o), interrupt: () => this.agent?.interrupt() },
         null, null, this.player, this.transcript, this.voiceOptions(),
@@ -540,8 +556,79 @@ export default class CortanaPlugin extends Plugin {
     void this.saveData({ settings: this.settings, warned: this.warned });
   }
 
-  async saveSettings(opts: { restartAgent?: boolean; voice?: boolean; engine?: boolean } = {}): Promise<void> {
+  /** Makes an empty board at the board path, unless one is there. */
+  async makeBoard(): Promise<void> {
+    const { boardPath } = getLayout();
+    try {
+      if (await createBoard(this.vaultOps(), this.vaultPath)) {
+        new Notice(`Board created at "${boardPath}".`);
+        const file = this.app.vault.getFileByPath(boardPath);
+        if (file) await this.app.workspace.getLeaf(true).openFile(file);
+      } else new Notice(`There is already a board at "${boardPath}".`);
+    } catch (err) {
+      new Notice(`Could not create the board: ${(err as Error).message}`);
+    }
+  }
+
+  /** True when the board note exists. */
+  hasBoard(): boolean {
+    return existsSync(boardFile(this.vaultPath));
+  }
+
+  // --- other AIs (MCP) ---
+
+  /** Starts, restarts or stops the local MCP server to match the settings. */
+  async applyMcp(): Promise<void> {
+    const running = this.mcp;
+    this.mcp = undefined;
+    this.mcpError = '';
+    await running?.close();
+    const store = this.store;
+    if (!this.settings.connectAis || !store || this.unloaded) return;
+    const handler = new McpHandler({
+      context: () => ({ vaultPath: this.vaultPath, ops: this.vaultOps(), store, onWrite: (client, summary, changes) => this.outsideWrite(client, summary, changes) }),
+      allowWrites: () => this.settings.mcpWrites,
+      version: this.manifest.version,
+    });
+    try {
+      this.mcp = await startMcpServer(handler, this.settings.mcpPort, this.mcpToken());
+      if (this.unloaded) void this.mcp.close();
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      this.mcpError = code === 'EADDRINUSE' ? `port ${this.settings.mcpPort} is in use. Pick another port.` : (err as Error).message;
+      createLogger('mcp').error('Could not start', err);
+    }
+  }
+
+  /** The address other AIs connect to. */
+  mcpUrl(): string {
+    return `http://127.0.0.1:${this.settings.mcpPort}/mcp`;
+  }
+
+  mcpToken(): string {
+    let token = this.app.secretStorage.getSecret(MCP_TOKEN_SECRET);
+    if (!token) {
+      token = newToken();
+      this.app.secretStorage.setSecret(MCP_TOKEN_SECRET, token);
+    }
+    return token;
+  }
+
+  /** A new token: every connected AI must be set up again. */
+  async resetMcpToken(): Promise<void> {
+    this.app.secretStorage.setSecret(MCP_TOKEN_SECRET, newToken());
+    await this.applyMcp();
+  }
+
+  /** Shows what another AI changed in the panel and keeps a line in the agent log. */
+  private outsideWrite(client: string, summary: string, changes: NoteChange[]): void {
+    void this.session?.proactive(`${client}: ${summary}`, 'outside-ai', { changes, speak: false });
+    void appendAgentLog(this.vaultOps(), localDate(new Date()), 'outside-ai', `${client}: ${summary}`);
+  }
+
+  async saveSettings(opts: { restartAgent?: boolean; voice?: boolean; engine?: boolean; mcp?: boolean } = {}): Promise<void> {
     await this.saveData({ settings: this.settings, warned: this.warned });
+    if (opts.mcp) await this.applyMcp();
     if (opts.restartAgent) {
       setLayout(this.settings.layout);
       this.agent?.updateSettings(this.agentSettings());

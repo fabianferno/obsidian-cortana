@@ -27,6 +27,7 @@ export const ACTION_SCHEMA: Record<string, string[]> = {
   reschedule_task: ['task', 'newDate'],
   edit_task: ['task', 'text'],
   repair_board: ['content'],
+  create_board: [],
   set_estimate: ['minutes'],
   note: ['title', 'noteType', 'text'],
   people_note: ['name', 'note'],
@@ -158,6 +159,8 @@ export function describeActions(actions: VaultAction[] | undefined): string {
           return `Changed the card to "${action.text}".`;
         case 'repair_board':
           return 'Repaired the board. Say /undoboard to put it back.';
+        case 'create_board':
+          return `Made your board with Backlog, To Do, Doing and Done columns.`;
         case 'note':
           return `Noted in "${action.title}".`;
         case 'people_note':

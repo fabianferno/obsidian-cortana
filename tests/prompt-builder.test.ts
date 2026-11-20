@@ -21,12 +21,13 @@ describe('buildTurn board section', () => {
   it('lists columns when the board exists', () => {
     const text = buildTurn('reply', config, context(vault), []);
     expect(text).toContain('- To Do: 0 (empty)');
-    expect(text).not.toContain('NOT FOUND');
+    expect(text).not.toContain('NO BOARD');
   });
 
   it('says the board is missing instead of empty when the file does not exist', () => {
     const text = buildTurn('reply', config, context({ ...vault, boardMissing: 'Kanban.md' }), []);
     expect(text).toContain('no board file at "Kanban.md"');
+    expect(text).toContain('create_board');
     expect(text).not.toContain('- To Do: 0 (empty)');
   });
 });

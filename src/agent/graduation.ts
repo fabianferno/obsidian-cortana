@@ -17,6 +17,7 @@ import { addQuestion, hasQuestion, hashContent, missingUserLines, questionText, 
 import { createLogger } from '../utils/logger.js';
 import type { NoteChange } from './changes.js';
 import type { VaultOps } from '../vault/ops.js';
+import { appendAgentLog } from '../vault/agent-log.js';
 
 export { fsVaultOps, type VaultOps } from '../vault/ops.js';
 
@@ -320,12 +321,7 @@ export class Graduation {
 
   /** One line per action in the agent's log, greppable: `## [2026-11-14] graduate | Maria B`. */
   private async log(date: string, kind: string, text: string): Promise<void> {
-    try {
-      const entry = `## [${date}] ${kind} | ${text.replace(/\s+/g, ' ')}\n`;
-      await this.ops.process(path.posix.join(getLayout().agentFolder, 'log.md'), content =>
-        (content || '# Agent log\n\nWhat the agent did in the vault, newest last.\n\n') + entry);
-    } catch (err) {
-      logger.error('Could not write the agent log', err);
-    }
+    if (!(await appendAgentLog(this.ops, date, kind, text))) logger.error('Could not write the agent log');
   }
+
 }

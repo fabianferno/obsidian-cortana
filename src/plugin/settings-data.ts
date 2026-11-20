@@ -59,6 +59,12 @@ export interface CortanaSettings {
   sonioxTtsModel: string;
   sonioxTtsVoice: string;
   sonioxLanguage: string;
+
+  /** Run the local MCP server so other AIs on this computer can use the vault. */
+  connectAis: boolean;
+  mcpPort: number;
+  /** Let connected AIs file notes, remember facts and change the board (otherwise read only). */
+  mcpWrites: boolean;
 }
 
 export const DEFAULT_SETTINGS: CortanaSettings = {
@@ -100,6 +106,11 @@ export const DEFAULT_SETTINGS: CortanaSettings = {
   sonioxTtsModel: 'tts-rt-v2',
   sonioxTtsVoice: 'Adrian',
   sonioxLanguage: 'en',
+
+  // Off until the user turns it on: it opens a local port.
+  connectAis: false,
+  mcpPort: 27150,
+  mcpWrites: true,
 };
 
 /** Fills in anything missing from saved settings (older versions, hand edits). */

@@ -11,7 +11,8 @@ Soniox), and adds accountability features:
 editable personality files, morning/midday/evening check-ins, adaptive nudges, focus tracking
 on the kanban Doing column, filing what you mention into notes, and a daily pass that moves
 ready capture notes to the notes folder or asks a question inside them. Everything runs
-inside Obsidian; there is no server.
+inside Obsidian; there is no hosted server. An optional local MCP server (`src/mcp/`, off by
+default, 127.0.0.1 only) lets other AI apps on the same computer use the vault.
 
 Agent state and the local voice runtime live in `~/.obsidian-cortana/` (moved from `~/.obsidian-voice-agent/` on first run), outside the
 vault, so sync and git plugins never pick them up.
@@ -70,6 +71,12 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
 - `src/vault/repair.ts` - the `repair_board` action: the engine sends the whole corrected board,
   `checkBoardRepair` refuses it if any card, id, column, frontmatter or settings would be lost or
   known damage (line-number prefixes, doubled checkboxes, double ids) is left. `/undoboard` reverts.
+- `src/mcp/` - the local MCP server for other AIs. `server.ts` speaks Streamable HTTP with JSON
+  responses, both protocol eras (2025 `initialize` sessions and stateless 2026-07-28 with
+  `server/discover` and per-request `_meta`), bearer token, Host/Origin checks. `tools.ts`:
+  reads use `findNote` / search (so daily notes and the agent folder stay out), writes are
+  agent actions run through `executeVaultActions`; personality edits are not exposed.
+  `setup.ts`: the per-app config snippets. Outside writes show in the panel and `log.md`.
 - `src/agent/execute-actions.ts` - runs actions through the tested writers. Config edits are
   gated: propose stages (30 min TTL), apply writes, discard drops.
 - `src/voice/` - `session.ts` (utterance -> STT -> agent -> sentence chunks -> TTS -> player,
@@ -103,6 +110,8 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   fake in tests), never `fetch`.
 - No telemetry, no self-updating code. Any new network call must be added to the README's
   "Network use" section.
+- The MCP server binds 127.0.0.1 only and every tool goes through the rules above. Never
+  expose gated config edits, `repair_board` or daily-note reads to outside AIs.
 
 ## Testing
 

@@ -20,6 +20,10 @@ let it brief you in the morning and wind you down in the evening.
   folder, or leaves one question inside the note for you to answer. Your own words are never
   rewritten (a rewrite that drops any of your lines is refused), facts come only from your
   vault, and every move keeps your links working.
+- **One memory for all your AIs.** Optional: Claude Code, Codex, Cursor, Gemini CLI and other
+  AI apps on your computer can connect to Cortana (MCP). They learn who you are, your goals
+  and your board, search your notes, and file what you tell them into the same vault, under
+  the same rules.
 
 Because it drives a CLI, Cortana runs programs on your computer and keeps state in files
 outside your vault. The plugin's own writes inside the vault go through Obsidian's API; the
@@ -63,8 +67,10 @@ with permission rules, not just instructions.
   - [Claude Code](https://docs.claude.com/en/docs/claude-code): `claude`
   - [Codex CLI](https://github.com/openai/codex): `codex`
   - [Antigravity CLI](https://antigravity.google): `agy`
-- For the board features: the [Kanban](https://github.com/mgmeyers/obsidian-kanban) plugin
-  format (a note with `## Column` headings and `- [ ] card` lines).
+- For the board features: a board note (`## Column` headings with `- [ ] card` lines). No
+  board yet? Ask Cortana to make one, or run **Cortana: Create a board**. The
+  [Kanban](https://github.com/mgmeyers/obsidian-kanban) plugin shows the note as a board, but
+  Cortana does not need it.
 
 ## Install
 
@@ -93,8 +99,8 @@ ways:
    for example the output of `which claude` in a terminal.
 2. Set your **Vault layout**: where your kanban board is, your quick-capture folder, the folder
    finished notes move to, and your daily notes. The defaults are `Kanban.md`, `Inbox/`,
-   `Notes/` and `Daily/`; change them to match your vault. If the board path is wrong the
-   plugin tells you, instead of reporting an empty board.
+   `Notes/` and `Daily/`; change them to match your vault. If there is no board at that path,
+   press **Create board** (or just ask Cortana for one); Cortana never pretends an empty board.
 3. Open the panel with the microphone ribbon icon, or the command **Cortana: Open panel**.
 4. Bind a hotkey to **Cortana: Talk (start or stop listening)** in Settings, Hotkeys.
 
@@ -179,6 +185,30 @@ emoji with me".
   debt", "Updated Kanban", "Moved Maria B to Notes"). Click one to open the note. Chips are
   shown, never read aloud, and a note pass posts its own message when it runs.
 
+## Other AIs (MCP)
+
+Turn on **Let other AIs use your vault** in settings, pick your app under **Connect an
+app**, press **Copy setup** and paste it where the label says (a terminal for Claude Code
+and Gemini CLI, the config file for Codex, Cursor, Claude Desktop and OpenClaw). The app
+then has these tools:
+
+| Tool | What it does |
+| --- | --- |
+| `get_context` | Who you are (`user.md`), your goals, what Cortana remembers, today's date and your board. Apps are told to call it first. |
+| `search_notes`, `read_note` | Find and read your notes. |
+| `capture_note` | Adds a dated Timeline line to a note, with the app as the source (`[Source: Claude Code]`), or a new note in the capture folder. |
+| `remember` | Adds a fact about you to `memory.md`. |
+| `add_task`, `move_task` | Changes your board through the same writer Cortana uses. |
+
+The rules are the same as for Cortana's own engine: daily notes and the agent folder
+cannot be read, `soul.md`, `identity.md`, `user.md` and `goals.md` cannot be changed, and
+your own lines are never rewritten. Every change shows in the Cortana panel and gets a line
+in `log.md`. Turn off **Let them make changes** to allow reading only.
+
+The server listens only on `127.0.0.1` and needs a token kept in Obsidian's secret storage;
+**New token** disconnects every app. Web apps (claude.ai, ChatGPT, grok.com) call MCP
+servers from their own cloud, so they cannot reach it.
+
 Times are in settings; leave one empty to turn it off. Check-ins only run while Obsidian is
 open; a check-in missed while it was closed runs once when you open it, if it is still the
 same day. Quiet hours come from `user.md`.
@@ -212,6 +242,8 @@ services, and only for these reasons:
 | `stt-rt.soniox.com`, `tts-rt.soniox.com` | Only if you choose Soniox | Your speech audio or the agent's reply text, with your Soniox key. |
 | `api.soniox.com` | When the Soniox voice setting is shown | Your Soniox key and the voice model name, to list the voices you can pick. |
 | `api.elevenlabs.io` | Only if you choose ElevenLabs | The agent's reply text, with your ElevenLabs key. When the ElevenLabs voice setting is shown, your key, to list the voices in your library. |
+
+| A local MCP server on `127.0.0.1` (port 27150 by default) | Only if you turn on **Let other AIs use your vault** | Nothing is sent out. AI apps on this computer that have your token can read your notes (not daily notes or the agent folder) and, if allowed, file notes and change the board. What they do with it is up to that app and its provider. |
 
 With local speech recognition and the system voice, audio never leaves your computer.
 
@@ -263,6 +295,19 @@ release workflow builds the plugin and publishes the three files.
 
 Issues and pull requests are welcome. Please run `pnpm lint && pnpm test` before opening a
 pull request, and keep new network calls listed under "Network use".
+
+## Credits
+
+`main.js` bundles these libraries, under their own licenses:
+
+- [transformers.js](https://github.com/huggingface/transformers.js) 3.8.1 by Hugging Face
+  (Apache-2.0), which runs Whisper.
+- [ONNX Runtime Web](https://github.com/microsoft/onnxruntime) by Microsoft (MIT), its
+  JavaScript part. The WASM binary is downloaded on first use (see Network use).
+
+The Whisper models are OpenAI's [Whisper](https://github.com/openai/whisper) (MIT), in the
+ONNX conversions published by [Xenova](https://huggingface.co/Xenova) on Hugging Face,
+downloaded on first use.
 
 ## License
 

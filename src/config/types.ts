@@ -164,13 +164,14 @@ export type VaultAction =
   | { type: 'move_task'; task: string; from: string; to: string }
   | { type: 'complete_task'; task: string; from: string }
   | { type: 'add_task'; text: string; column: string }
-  | { type: 'note'; title: string; noteType: string; text: string }
+  | { type: 'note'; title: string; noteType: string; text: string; source?: string }
   | { type: 'people_note'; name: string; note: string }
   | { type: 'literature_note'; title: string; noteType: string; source: string; note: string }
   | { type: 'update_memory'; observation: string }
   | { type: 'reschedule_task'; task: string; newDate: string }
   | { type: 'edit_task'; task: string; text: string }
   | { type: 'repair_board'; content: string }
+  | { type: 'create_board' }
   | { type: 'set_estimate'; minutes: number; task?: string }
   | { type: 'propose_config_edit'; file: ConfigFile; section: string;
       operation: ConfigEditOperation; content: string; rationale: string;

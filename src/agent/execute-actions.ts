@@ -7,7 +7,7 @@
 
 import type { PendingConfigEdit, VaultAction } from '../config/types.js';
 import type { Store } from '../store/store.js';
-import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle, editCardText } from '../vault/writer.js';
+import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle, editCardText, createBoard } from '../vault/writer.js';
 import { handlePersonMention } from '../journal/people.js';
 import { handleLiteratureMention } from '../journal/literature.js';
 import { captureToNote } from '../journal/capture.js';
@@ -80,6 +80,7 @@ export async function executeVaultActions(
         }
         case 'add_task':
           if (await mutateKanban(ops, vaultPath, [{ type: 'add', task: action.text, toColumn: action.column }])) board();
+          else fail(`There is no "${action.column}" column on the board, so "${action.text}" was not added.`);
           break;
         case 'reschedule_task': {
           const moved = await updateCardDeadlineByTitle(ops, vaultPath, action.task, action.newDate);
@@ -108,8 +109,12 @@ export async function executeVaultActions(
           }
           break;
         }
+        case 'create_board':
+          if (await createBoard(ops, vaultPath)) onChange({ kind: 'created', path: getLayout().boardPath });
+          else fail(`There is already a board at "${getLayout().boardPath}", so I left it as it is.`);
+          break;
         case 'note': {
-          const res = await captureToNote(ops, vaultPath, { title: action.title, noteType: action.noteType, text: action.text });
+          const res = await captureToNote(ops, vaultPath, { title: action.title, noteType: action.noteType, text: action.text, ...(action.source ? { source: action.source } : {}) });
           logger.info(`Captured to ${res.filePath} (${res.action})`);
           captured(res);
           break;

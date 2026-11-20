@@ -11,6 +11,49 @@ import type { VaultOps } from './ops.js';
 
 const logger = createLogger('writer');
 
+/** An empty board in the Kanban plugin's format; it is also a plain note without the plugin. */
+export const STARTER_BOARD = `---
+
+kanban-plugin: board
+
+---
+
+## Backlog
+
+
+
+## To Do
+
+
+
+## Doing
+
+
+
+## Done
+
+
+
+
+%% kanban:settings
+\`\`\`
+{"kanban-plugin":"board","list-collapse":[false,false,false,false]}
+\`\`\`
+%%
+`;
+
+/** Creates the board at the configured path. False when one is already there (it is never overwritten). */
+export async function createBoard(ops: VaultOps, vaultPath: string): Promise<boolean> {
+  if (existsSync(boardFile(vaultPath))) return false;
+  let created = false;
+  await ops.process(getLayout().boardPath, content => {
+    if (content) return content;
+    created = true;
+    return STARTER_BOARD;
+  });
+  return created;
+}
+
 /** Read-modify-write the board through VaultOps. A missing board is an error, never created. */
 async function processBoard(ops: VaultOps, vaultPath: string, edit: (content: string) => string): Promise<void> {
   if (!existsSync(boardFile(vaultPath))) throw new Error(`No board at ${getLayout().boardPath}`);
