@@ -9,6 +9,7 @@ import { DEFAULT_LAYOUT, type VaultLayout } from '../config/paths.js';
 import { parseTime } from '../checkins/scheduler.js';
 import { pickBestVoice, systemVoices, voiceQuality, type VoiceInfo } from '../voice/system.js';
 import { SETUP_CLIENTS, setupSnippet, type SetupClient } from '../mcp/setup.js';
+import { NAME } from '../brand.js';
 
 export * from './settings-data.js';
 import { type SttChoice, type StringSettingKey, type TtsChoice, type CortanaSettings } from './settings-data.js';
@@ -100,6 +101,13 @@ export class CortanaSettingTab extends PluginSettingTab {
     const usesSarvam = () => s.stt === 'sarvam' || s.tts === 'sarvam';
     const usesSoniox = () => s.stt === 'soniox' || s.tts === 'soniox';
     const sarvamSpeakers = sarvamVoices(s.sarvamTtsModel);
+
+    const naming: Row[] = [
+      this.text('Its name', `What the assistant is called. Leave empty for "${NAME}".`, 'assistantName', undefined,
+        { placeholder: NAME, save: { restartAgent: true, name: true } }),
+      this.text('What it calls you', 'Your name or a nickname. Leave empty to use the name in user.md.', 'userTitle', undefined,
+        { save: { restartAgent: true } }),
+    ];
 
     const brain: Row[] = [
       {
@@ -378,6 +386,7 @@ export class CortanaSettingTab extends PluginSettingTab {
     ];
 
     return [
+      { heading: 'Name', rows: naming },
       { heading: 'Brain', rows: brain },
       { heading: 'Voice', rows: voice },
       { heading: 'Check-ins', rows: checkins },
@@ -515,14 +524,17 @@ export class CortanaSettingTab extends PluginSettingTab {
     super.hide();
   }
 
-  private text(name: string, desc: string, key: StringSettingKey, visible?: () => boolean): Row {
+  private text(
+    name: string, desc: string, key: StringSettingKey, visible?: () => boolean,
+    opts: { placeholder?: string; save?: Parameters<CortanaPlugin['saveSettings']>[0] } = {},
+  ): Row {
     return {
       name,
       desc,
       ...(visible ? { visible } : {}),
-      build: setting => setting.addText(t => t.setValue(this.plugin.settings[key]).onChange(async v => {
+      build: setting => setting.addText(t => t.setPlaceholder(opts.placeholder ?? '').setValue(this.plugin.settings[key]).onChange(async v => {
         (this.plugin.settings as unknown as Record<string, unknown>)[key] = v.trim();
-        await this.plugin.saveSettings({ voice: true });
+        await this.plugin.saveSettings(opts.save ?? { voice: true });
       })),
     };
   }

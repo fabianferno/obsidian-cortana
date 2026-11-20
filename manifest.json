@@ -1,7 +1,7 @@
 {
   "id": "cortana",
   "name": "Cortana",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "minAppVersion": "1.11.4",
   "description": "Talk to your vault. Cortana is a voice agent powered by Claude Code, Codex or Antigravity, with briefings and kanban check-ins. Local speech by default.",
   "author": "Fabian Ferno",

@@ -15,7 +15,7 @@ import { describeEdit } from '../config/editor.js';
 import { formatDuration } from '../utils/format.js';
 import { getLayout } from '../config/paths.js';
 import { OPEN_TAG, CLOSE_TAG } from './actions.js';
-import { NAME, USER_TITLE } from '../brand.js';
+import { assistantName } from '../brand.js';
 import { CUE_TAGS } from '../speech/cues.js';
 import type { WorkspaceSnapshot } from '../workspace/trail.js';
 
@@ -24,6 +24,10 @@ export interface SystemPromptOptions {
   capture?: boolean;
   /** What the voice reading the replies can do. */
   speech?: SpeechStyle;
+  /** The assistant's name, as the user set it (default: the product name). */
+  name?: string;
+  /** What to call the user. Empty: their name, if "About the user" gives one. */
+  userTitle?: string;
 }
 
 export interface SpeechStyle {
@@ -40,7 +44,7 @@ export function speechRules(style?: SpeechStyle): string {
     parts.push(`# Voice cues
 Your voice reads short bracketed cues as directions for how to say the words after them.
 They are never shown on screen. You may use only these: ${CUE_TAGS.map(t => `[${t}]`).join(' ')}.
-- Put a cue right before the clause it colours, for example "[warm] Good morning, ${USER_TITLE}."
+- Put a cue right before the clause it colours, for example "[warm] Good morning."
   or "That is three days late. [stern] Let's finish it today."
 - Most sentences need none. At most one or two cues in a reply, and never two in a row
   unless they combine naturally, like "[warm] [softly]".
@@ -64,9 +68,13 @@ export function buildSystemPrompt(config: AgentConfig, opts: SystemPromptOptions
   const capture = opts.capture !== false;
   const speech = speechRules(opts.speech);
   const memory = config.memory.slice(0, 20).join('\n- ');
+  const title = opts.userTitle?.trim();
+  const address = title
+    ? `Call the user "${title}".`
+    : 'Call the user by their name if "About the user" gives one; otherwise no title.';
 
-  return `You are ${NAME}, a personal accountability agent that lives in the user's Obsidian vault.
-Call the user "${USER_TITLE}".
+  return `You are ${assistantName(opts.name)}, a personal accountability agent that lives in the user's Obsidian vault.
+That is your name, whatever your identity file says. ${address}
 The user talks to you through a voice panel inside Obsidian: their words reach you through
 speech recognition (or typing), and your replies are read aloud and shown in a sidebar.
 Your working directory is the vault.

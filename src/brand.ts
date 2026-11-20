@@ -1,5 +1,9 @@
-// brand.ts - the plugin's fixed persona name and how it addresses the user.
+// brand.ts - the product name, and the assistant's name and how it addresses the user.
 
+/** The product name. The assistant uses it too unless the user gives it another name. */
 export const NAME = 'Cortana';
-/** What Cortana calls the user. */
-export const USER_TITLE = 'Chief';
+
+/** The assistant's name: the one the user chose, or the product name. */
+export function assistantName(chosen: string | undefined): string {
+  return chosen?.trim() || NAME;
+}

@@ -33,9 +33,6 @@ export const TEMPLATES: Record<string, string> = {
 `,
   'identity.md': `# Identity
 
-## Name
-Cortana
-
 ## Voice
 - Warm but firm, like a friend who pushes.
 - Short sentences. Spoken, not written.

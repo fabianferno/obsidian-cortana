@@ -257,6 +257,15 @@ describe('Agent', () => {
     expect(engines).toHaveLength(2);
   });
 
+  it('starts a fresh conversation under the new name when the user renames it', async () => {
+    await agent.handleUserMessage('hi');
+    agent.updateSettings({ ...SETTINGS, name: 'Jarvis', userTitle: 'Sam' });
+    await agent.handleUserMessage('hi again');
+    expect(engines).toHaveLength(2);
+    expect(engines[1].systemPrompt).toContain('You are Jarvis,');
+    expect(engines[1].systemPrompt).toContain('Call the user "Sam".');
+  });
+
   it('sends the live context and the user words, and the persona once', async () => {
     await agent.handleUserMessage('what now?', { spoken: true });
     const [engine] = engines;
@@ -538,11 +547,20 @@ describe('buildSystemPrompt', () => {
       userMeta: {} as any,
     });
     expect(prompt).toContain('You are Cortana,');
-    expect(prompt).toContain('Call the user "Chief".');
+    expect(prompt).not.toContain('Chief');
+    expect(prompt).toContain('Call the user by their name if "About the user" gives one');
     expect(prompt).toContain('NEVER read, search, open or write anything under "Journal/Days/"');
     expect(prompt).toContain('<actions>');
     expect(prompt.indexOf('newest')).toBeLessThan(prompt.indexOf('older'));
     setLayout({});
+  });
+
+  it('uses the name and title the user chose', () => {
+    const config = { soul: 'S', identity: 'I', user: 'U', goals: 'G', memory: [], userMeta: {} as any };
+    const prompt = buildSystemPrompt(config, { name: ' Jarvis ', userTitle: 'Sam' });
+    expect(prompt).toContain('You are Jarvis,');
+    expect(prompt).toContain('Call the user "Sam".');
+    expect(buildSystemPrompt(config, { name: '  ' })).toContain('You are Cortana,');
   });
 });
 

@@ -1,5 +1,8 @@
 # Cortana for Obsidian
 
+> An independent open source project, not affiliated with or endorsed by Microsoft.
+> Cortana is a trademark of Microsoft.
+
 Talk to your vault. Cortana is an Obsidian plugin that turns the coding agent already on
 your computer (Claude Code, Codex or Antigravity) into a spoken assistant for your notes. Ask
 it what to work on, have it move cards on your kanban board, look things up in your notes, or
@@ -106,6 +109,7 @@ ways:
 
 On first run the plugin creates the agent's files in the agent folder (`agent/` by default):
 `soul.md`, `identity.md`, `user.md`, `goals.md` and `memory.md`. Edit them to shape the agent.
+To give it another name, or tell it what to call you, use **Name** at the top of the plugin settings.
 `user.md` holds your timezone, quiet hours, check-in interval and coordinates (sent to the engine as part of the context).
 
 The first time you talk to it, the plugin downloads the ONNX runtime (21 MB, from jsDelivr,

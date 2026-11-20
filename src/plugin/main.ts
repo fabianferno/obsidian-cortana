@@ -20,7 +20,7 @@ import type { SpeechStyle } from '../brain/prompt-builder.js';
 import { LocalVoiceWorker, LocalWhisper } from '../voice/local/client.js';
 import { SystemTts } from '../voice/system.js';
 import { cacheRoot, ensureWasm } from '../voice/local/runtime.js';
-import { NAME, USER_TITLE } from '../brand.js';
+import { assistantName } from '../brand.js';
 import { removeOldKokoroModels } from '../voice/local/cleanup.js';
 import { createLogger } from '../utils/logger.js';
 import type { Http } from '../voice/http.js';
@@ -188,6 +188,8 @@ export default class CortanaPlugin extends Plugin {
       graduate: s.graduate,
       graduatePerDay: s.graduatePerDay,
       speech: this.speechStyle(),
+      name: s.assistantName,
+      userTitle: s.userTitle,
     };
   }
 
@@ -509,7 +511,7 @@ export default class CortanaPlugin extends Plugin {
     if (!tts) return;
     try {
       this.player.stop();
-      await this.player.enqueue(tts.synthesize(`Hi ${USER_TITLE}, I'm ${NAME}. This is how I sound.`));
+      await this.player.enqueue(tts.synthesize(`Hi, I'm ${assistantName(this.settings.assistantName)}. This is how I sound.`));
     } catch (err) {
       new Notice(`Voice test failed: ${(err as Error).message}`);
     }
@@ -626,8 +628,13 @@ export default class CortanaPlugin extends Plugin {
     void appendAgentLog(this.vaultOps(), localDate(new Date()), 'outside-ai', `${client}: ${summary}`);
   }
 
-  async saveSettings(opts: { restartAgent?: boolean; voice?: boolean; engine?: boolean; mcp?: boolean } = {}): Promise<void> {
+  async saveSettings(opts: { restartAgent?: boolean; voice?: boolean; engine?: boolean; mcp?: boolean; name?: boolean } = {}): Promise<void> {
     await this.saveData({ settings: this.settings, warned: this.warned });
+    if (opts.name) {
+      for (const leaf of this.app.workspace.getLeavesOfType(VIEW_TYPE)) {
+        if (leaf.view instanceof CortanaView) leaf.view.rename();
+      }
+    }
     if (opts.mcp) await this.applyMcp();
     if (opts.restartAgent) {
       setLayout(this.settings.layout);

@@ -2,7 +2,7 @@
 
 import { ItemView, setIcon, type WorkspaceLeaf } from 'obsidian';
 import type CortanaPlugin from './main.js';
-import { NAME, USER_TITLE } from '../brand.js';
+import { assistantName } from '../brand.js';
 import { describeSource, type Entry } from './transcript.js';
 import type { VoiceState } from '../voice/session.js';
 import { describeChange, type NoteChange } from '../agent/changes.js';
@@ -44,6 +44,7 @@ export class CortanaView extends ItemView {
   private micBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private input!: HTMLTextAreaElement;
+  private titleEl: HTMLElement | null = null;
   /** The "/" command menu above the composer. */
   private suggestEl!: HTMLElement;
   private suggestions: SlashCommand[] = [];
@@ -67,7 +68,15 @@ export class CortanaView extends ItemView {
   }
 
   getDisplayText(): string {
-    return NAME;
+    return assistantName(this.plugin.settings.assistantName);
+  }
+
+  /** The user renamed the assistant: update the header, the text box and the greeting. */
+  rename(): void {
+    const name = this.getDisplayText();
+    this.titleEl?.setText(name);
+    this.input?.setAttr('placeholder', `Message ${name}`);
+    this.listEl?.querySelector('.cortana-greeting')?.setText(`Hi, I'm ${name}.`);
   }
 
   getIcon(): string {
@@ -81,7 +90,7 @@ export class CortanaView extends ItemView {
 
     const header = root.createDiv('cortana-header');
     this.miniOrb = this.createOrb(header, 'is-mini');
-    header.createDiv({ cls: 'cortana-title', text: this.getDisplayText() });
+    this.titleEl = header.createDiv({ cls: 'cortana-title', text: this.getDisplayText() });
     this.stateEl = header.createDiv('cortana-state');
     const menu = header.createEl('button', { cls: 'clickable-icon cortana-icon-btn', attr: { 'aria-label': 'New conversation' } });
     setIcon(menu, 'rotate-ccw');
@@ -94,7 +103,7 @@ export class CortanaView extends ItemView {
     const footer = root.createDiv('cortana-footer');
     this.suggestEl = footer.createDiv({ cls: 'cortana-suggest', attr: { id: this.uid, role: 'listbox', 'aria-label': 'Commands' } });
     const composer = footer.createDiv('cortana-composer');
-    this.input = composer.createEl('textarea', { cls: 'cortana-input', attr: { rows: '1', placeholder: `Message ${NAME}` } });
+    this.input = composer.createEl('textarea', { cls: 'cortana-input', attr: { rows: '1', placeholder: `Message ${this.getDisplayText()}` } });
     this.stopBtn = composer.createEl('button', { cls: 'cortana-composer-btn cortana-stop', attr: { 'aria-label': 'Stop' } });
     setIcon(this.stopBtn, 'square');
     this.stopBtn.onclick = () => this.plugin.interrupt();
@@ -256,7 +265,7 @@ export class CortanaView extends ItemView {
     if (this.listEl.querySelector('.cortana-empty')) return;
     const empty = this.listEl.createDiv('cortana-empty');
     this.bigOrb = this.createOrb(empty, 'is-big');
-    empty.createDiv({ cls: 'cortana-greeting', text: `Hi ${USER_TITLE}, I'm ${NAME}.` });
+    empty.createDiv({ cls: 'cortana-greeting', text: `Hi, I'm ${this.getDisplayText()}.` });
     empty.createDiv({ text: 'Tap the circle or the mic and talk, or type below.' });
     empty.createDiv({ cls: 'cortana-empty-hint', text: 'Try: "What should I work on?", "Add call the bank to To Do", "Summarize my notes on the garden project".' });
   }

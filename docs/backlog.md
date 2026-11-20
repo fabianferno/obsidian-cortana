@@ -161,9 +161,43 @@ Done in 0.3.0:
 
 Still open:
 
-- **Name decision.** "Cortana" (and calling the user "Chief") is Microsoft / Halo IP.
-  The review bot probably will not reject it, but a takedown after listing is the
-  realistic risk. Decide before submitting at community.obsidian.md.
+- **Name decision.** Decided 2026-11-20: keep "Cortana" as the product name and id,
+  knowing the trademark risk below. Mitigations done: users can rename the assistant
+  ("Its name" setting), "Chief" is gone by default ("What it calls you" setting), and the
+  README says Cortana is a Microsoft trademark and the project is not affiliated.
+  Research 2026-11-20 (not legal advice):
+  - Microsoft's CORTANA registrations are live: US 2841558 renewed 2024, US 5176726
+    registered 2017. Cortana is still a lead character in Halo: Campaign Evolved (2026).
+    So the mark is not abandoned, even though the Windows assistant was retired in 2023.
+  - Being open source and free is no defence. Free distribution counts as "use in
+    commerce" (Planetary Motion v. Techsplosion), and Neo4j v. PureThink found
+    infringement by an open source fork.
+  - Microsoft's brand guidelines bar using its marks in the name of a product or app,
+    "irrespective of whether ... non-profit".
+  - Cortana is a voice assistant, the same kind of product Microsoft's Cortana was, and
+    "Chief" plus "Hi Chief, I'm Cortana" copy Halo. Both make confusion more likely.
+  - No sign that Microsoft has gone after hobby GitHub projects called Cortana. For
+    example, brandonvers/Cortana carries a "not affiliated, Microsoft trademark"
+    disclaimer. Microsoft does police its marks: Xbox (pet goods), Age of Empires
+    (opposition), Lindows (lawsuits).
+  - Obsidian's policy only protects the "Obsidian" mark, so the review will not stop it.
+    A complaint would go to GitHub or Obsidian.
+  - The plugin id can't change after listing. Renaming later means a new listing, and
+    every user has to reinstall.
+  - Middle path: a neutral product name and id, and the user can name their own
+    assistant (a "What should I call it" setting), with no "Chief" by default.
+  - User picked the middle path (2026-11-20). Built: settings "Its name" and "What it
+    calls you" (empty = product name / the name in user.md), "Chief" removed, identity.md
+    template no longer has a Name section. The product name stays Cortana (see above).
+    If it ever has to change: the id, `~/.obsidian-cortana`, the CSS prefix and the
+    commands need a migration like 0.3.0's, and existing users keep "Cortana" as their
+    assistant name.
+  - Candidates checked 2026-11-20 against the Obsidian directory (10,619 plugins) and a
+    web search for AI apps. Clash: Hark (Brett Adcock's AI assistant), Keel (Keel Labs,
+    local-first markdown AI), Vesper (Vesper AI, check-in coach), Wren (WrenAI), Lumen,
+    Echo, Nudge, Tempo, Muse (taken in the directory). Clean so far: Coxswain, Orla
+    (only a Shopify marketing tool), Brio (interview coach, business phone line). A
+    USPTO search is still worth doing on the final pick.
 - **README.**
   - Add a GIF or screenshot of the panel near the top. The directory listing shows
     the README, so this matters most for discovery.

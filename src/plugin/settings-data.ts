@@ -15,6 +15,11 @@ export type StringSettingKey = {
 }[keyof CortanaSettings];
 
 export interface CortanaSettings {
+  /** What the assistant is called. Empty means the product name. */
+  assistantName: string;
+  /** What the assistant calls the user ("Sam", "boss"). Empty: their name from user.md, if any. */
+  userTitle: string;
+
   engine: EngineName;
   /** Optional full path per engine, when it is not on PATH. */
   engineBin: Record<EngineName, string>;
@@ -68,6 +73,9 @@ export interface CortanaSettings {
 }
 
 export const DEFAULT_SETTINGS: CortanaSettings = {
+  assistantName: '',
+  userTitle: '',
+
   engine: 'claude',
   engineBin: { claude: '', codex: '', antigravity: '' },
   model: '',

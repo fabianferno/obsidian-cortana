@@ -55,6 +55,10 @@ export interface AgentSettings {
   graduatePerDay: number;
   /** What the voice can do (cues, script). Changing it starts a fresh conversation. */
   speech?: SpeechStyle;
+  /** The assistant's name; empty means the product name. Changing it starts a fresh conversation. */
+  name?: string;
+  /** What it calls the user; empty means their name from user.md, if any. */
+  userTitle?: string;
 }
 
 export interface AgentMessage {
@@ -191,6 +195,8 @@ export class Agent {
   /** Apply new settings. Checkpoint timers are re-armed. */
   updateSettings(next: AgentSettings): void {
     const promptChanged = next.capture !== this.settings.capture
+      || (next.name ?? '') !== (this.settings.name ?? '')
+      || (next.userTitle ?? '') !== (this.settings.userTitle ?? '')
       || JSON.stringify(next.speech ?? null) !== JSON.stringify(this.settings.speech ?? null);
     this.settings = next;
     if (promptChanged) this.personaKey = '';
@@ -409,11 +415,12 @@ export class Agent {
 
   private ensureEngine(): EngineSession {
     const c = this.config;
-    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, String(this.settings.capture), JSON.stringify(this.settings.speech ?? null)].join('\0')).digest('hex');
+    const st = this.settings;
+    const key = createHash('sha1').update([c.soul, c.identity, c.user, c.goals, String(st.capture), JSON.stringify(st.speech ?? null), st.name ?? '', st.userTitle ?? ''].join('\0')).digest('hex');
     if (!this.engine || key !== this.personaKey) {
       // Personality changed (or first turn): start a conversation with the new prompt.
       this.engine?.close();
-      this.engine = this.makeEngine(buildSystemPrompt(c, { capture: this.settings.capture, speech: this.settings.speech }));
+      this.engine = this.makeEngine(buildSystemPrompt(c, { capture: st.capture, speech: st.speech, name: st.name, userTitle: st.userTitle }));
       this.personaKey = key;
     }
     return this.engine;
