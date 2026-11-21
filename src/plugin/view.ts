@@ -44,7 +44,9 @@ export class CortanaView extends ItemView {
   private micBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private input!: HTMLTextAreaElement;
-  private titleEl: HTMLElement | null = null;
+  /** The name in our header. Not `titleEl`: that is Obsidian's own field on View, and a
+   *  field initializer here would null it, so the view fails to open. */
+  private nameEl: HTMLElement | null = null;
   /** The "/" command menu above the composer. */
   private suggestEl!: HTMLElement;
   private suggestions: SlashCommand[] = [];
@@ -74,7 +76,7 @@ export class CortanaView extends ItemView {
   /** The user renamed the assistant: update the header, the text box and the greeting. */
   rename(): void {
     const name = this.getDisplayText();
-    this.titleEl?.setText(name);
+    this.nameEl?.setText(name);
     this.input?.setAttr('placeholder', `Message ${name}`);
     this.listEl?.querySelector('.cortana-greeting')?.setText(`Hi, I'm ${name}.`);
   }
@@ -90,7 +92,7 @@ export class CortanaView extends ItemView {
 
     const header = root.createDiv('cortana-header');
     this.miniOrb = this.createOrb(header, 'is-mini');
-    this.titleEl = header.createDiv({ cls: 'cortana-title', text: this.getDisplayText() });
+    this.nameEl = header.createDiv({ cls: 'cortana-title', text: this.getDisplayText() });
     this.stateEl = header.createDiv('cortana-state');
     const menu = header.createEl('button', { cls: 'clickable-icon cortana-icon-btn', attr: { 'aria-label': 'New conversation' } });
     setIcon(menu, 'rotate-ccw');
