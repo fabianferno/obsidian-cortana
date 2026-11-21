@@ -9,7 +9,7 @@
 
 import { existsSync, readFileSync } from 'fs';
 import { boardFile, getLayout } from '../config/paths.js';
-import { ensureCardIds } from './writer.js';
+import { ensureCardIds, isDailyColumn } from './writer.js';
 import type { VaultOps } from './ops.js';
 
 export interface BoardBackup {
@@ -57,6 +57,19 @@ function cards(content: string, pattern: RegExp): Card[] {
 const headers = (content: string) =>
   content.split('\n').map(l => l.trim().match(/^## (.+)$/)?.[1].trim()).filter((h): h is string => !!h);
 
+/** The cards under the Daily column, by id. */
+function dailyCards(content: string): Map<string, string> {
+  const out = new Map<string, string>();
+  let column = '';
+  for (const line of content.split('\n')) {
+    const header = line.trim().match(/^## (.+)$/);
+    if (header) { column = header[1].trim(); continue; }
+    const m = line.match(CARD_ANYWHERE);
+    if (m && isDailyColumn(column)) { const c = card(m[1]); for (const id of c.ids) out.set(id, c.body); }
+  }
+  return out;
+}
+
 const short = (s: string) => (s.length > 60 ? `${s.slice(0, 57)}...` : s);
 
 /** What a proposed board would lose or still get wrong. Empty means it is safe to write. */
@@ -71,6 +84,11 @@ export function checkBoardRepair(before: string, after: string): string[] {
       ? c.ids.some(id => nowIds.has(id))
       : !c.key || now.some(n => n.key.includes(c.key));
     if (!kept) problems.push(`the card "${short(c.body)}" would be lost`);
+  }
+  // Daily cards stay in Daily.
+  const dailyNow = dailyCards(after);
+  for (const [id, body] of dailyCards(before)) {
+    if (nowIds.has(id) && !dailyNow.has(id)) problems.push(`the Daily card "${short(body)}" would leave the Daily column`);
   }
   const nowHeaders = new Set(headers(after));
   for (const h of headers(before)) if (!nowHeaders.has(h)) problems.push(`the "${h}" column would be lost`);

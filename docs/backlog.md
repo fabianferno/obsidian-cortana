@@ -2,6 +2,19 @@
 
 Open threads to pick up later. Newest first.
 
+## Daily column: tick in place, reset each morning (decided 2026-11-21)
+
+The user's board has a `Daily` column of habits. The done-sweep moved ticked cards from every
+non-terminal column into Done, so ticking "Run / Workout" and "Learn Russian" carried them out
+of Daily. The user asked that Daily cards never move and suggested ticking; they left the rest
+to us. Decision: Daily cards are ticked in place (complete_task, or a move to Done/Archive,
+ticks them), never moved out by the agent or a board repair (the user can still drag them), and
+unticked once a day at 4am local, so a habit ticked after midnight counts for the evening it
+belongs to. The first run only records the day. The reset keeps yesterday's unticked cards, and
+the context shows "Daily habits: done today / still open / missed yesterday" for check-ins.
+Considered and dropped: recreating cards each day (loses ids, churns the file) and a per-habit
+streak history (more state than the check-ins need for now).
+
 ## Project site, like gbrain.io/personal (added 2026-11-20)
 
 The user wants a public site for Cortana in the style of https://gbrain.io/personal: one

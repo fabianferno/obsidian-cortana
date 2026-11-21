@@ -119,6 +119,10 @@ export interface VaultStateContext {
   doingCount: number;
   doingTasks: Task[];
   doneToday: Task[];
+  /** Cards in the recurring Daily column: ticked means done today. */
+  dailyTasks: Task[];
+  /** Daily cards left unticked yesterday, from the last reset (only when that day was yesterday). */
+  dailyMissedYesterday: string[];
   overdueTasks: Task[];
   dueSoon: Task[];
   stuckTasks: Task[];

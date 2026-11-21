@@ -6,6 +6,9 @@ import type { Store } from '../store/store.js';
 import { parseInboxKanban } from '../vault/parser.js';
 import { searchByTag } from '../vault/search.js';
 import { boardFile, getLayout } from '../config/paths.js';
+import { isDailyColumn } from '../vault/writer.js';
+import { localDate } from '../checkins/scheduler.js';
+import { asArray, asObject, parseJson } from '../utils/json.js';
 
 export async function getVaultState(
   vaultPath: string,
@@ -23,6 +26,8 @@ export async function getVaultState(
   const todo = board.columns['To Do'] || [];
   const doing = board.columns['Doing'] || [];
   const done = board.columns['Done'] || [];
+  const dailyColumn = board.columnOrder.find(isDailyColumn);
+  const dailyTasks = dailyColumn ? board.columns[dailyColumn] : [];
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -76,6 +81,14 @@ export async function getVaultState(
 
   const workoutStreak = await store.getWorkoutStreak();
 
+  // What the last Daily reset found unticked, if that day was yesterday.
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const lastReset = asObject(parseJson((await store.getSessionState('daily_missed')) ?? ''));
+  const dailyMissedYesterday = lastReset.date === localDate(yesterday)
+    ? asArray(lastReset.missed).filter((t): t is string => typeof t === 'string')
+    : [];
+
   return {
     backlogCount: backlog.length,
     todoCount: todo.length,
@@ -83,6 +96,8 @@ export async function getVaultState(
     doingCount: doing.length,
     doingTasks: doing,
     doneToday,
+    dailyTasks,
+    dailyMissedYesterday,
     overdueTasks,
     dueSoon,
     stuckTasks,

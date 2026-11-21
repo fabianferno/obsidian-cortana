@@ -63,6 +63,12 @@ describe('checkBoardRepair', () => {
     expect(checkBoardRepair(BROKEN, FIXED.replace('kanban-plugin: board', ''))[0]).toMatch(/frontmatter/);
   });
 
+  it('refuses a repair that moves a card out of the Daily column', () => {
+    const before = ['## Daily', '- [x] Read ^d1', '', '## Done', ''].join('\n');
+    expect(checkBoardRepair(before, ['## Daily', '', '## Done', '- [x] Read ^d1'].join('\n'))[0]).toMatch(/Daily card "Read"/);
+    expect(checkBoardRepair(before, before.replace('[x]', '[ ]'))).toEqual([]);
+  });
+
   it('refuses a repair that leaves damage in', () => {
     expect(checkBoardRepair(BROKEN, FIXED.replace('- [ ] Index', '\t50|- [ ] Index'))).toContainEqual(expect.stringMatching(/line-number/));
     expect(checkBoardRepair(BROKEN, FIXED.replace('- [ ] Learn', '- [ ] - [ ] Learn'))).toContainEqual(expect.stringMatching(/doubled checkbox/));

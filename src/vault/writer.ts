@@ -55,6 +55,17 @@ export async function createBoard(ops: VaultOps, vaultPath: string): Promise<boo
 }
 
 /** Read-modify-write the board through VaultOps. A missing board is an error, never created. */
+/**
+ * The recurring column ("Daily", any case). Its cards are habits: done for the day
+ * means ticked in place. They are never moved out (a move to Done or Archive ticks
+ * the card instead), and resetDailyColumn unticks them when a new day starts.
+ */
+export function isDailyColumn(column: string): boolean {
+  return column.trim().toLowerCase() === 'daily';
+}
+
+const TERMINAL_COLUMNS = new Set(['Done', 'Archive']);
+
 async function processBoard(ops: VaultOps, vaultPath: string, edit: (content: string) => string): Promise<void> {
   if (!existsSync(boardFile(vaultPath))) throw new Error(`No board at ${getLayout().boardPath}`);
   await ops.process(getLayout().boardPath, edit);
@@ -143,6 +154,7 @@ function applyMutations(original: string, mutations: KanbanMutation[]): string {
  * intact -- to the bottom of the Done column, so its stable id survives (unlike
  * the text-matching move path, which re-mints one). Returns the moved card texts.
  * Idempotent: Done/Archive are terminal, so a healed card is never moved again.
+ * The Daily column is skipped: a ticked habit stays where it is until the reset.
  */
 export async function autoMoveCompletedToDone(ops: VaultOps, vaultPath: string): Promise<string[]> {
   let texts: string[] = [];
@@ -157,7 +169,6 @@ export async function autoMoveCompletedToDone(ops: VaultOps, vaultPath: string):
 function moveCompletedToDone(content: string): { content: string; moved: string[] } {
   const lines = content.split('\n');
 
-  const TERMINAL = new Set(['Done', 'Archive']);
   const moved: { line: string; text: string }[] = [];
   const kept: string[] = [];
   let column = '';
@@ -171,7 +182,7 @@ function moveCompletedToDone(content: string): { content: string; moved: string[
       continue;
     }
     const task = line.match(/^\s*-\s*\[[xX]\]\s+(.+)$/);
-    if (task && column && !TERMINAL.has(column)) {
+    if (task && column && !TERMINAL_COLUMNS.has(column) && !isDailyColumn(column)) {
       moved.push({ line, text: normalizeTaskBody(task[1]) });
       continue; // drop from source column
     }
@@ -266,11 +277,73 @@ function moveTask(content: string, taskText: string, from: string, to: string): 
   // A move must relocate an existing card, never conjure a phantom (which is how
   // "clear the finvoice" could otherwise invent a Done card that never existed).
   if (!source || source === to) return content;
+  // Daily cards never leave Daily. Finishing one ticks it in place for today.
+  if (isDailyColumn(source)) return TERMINAL_COLUMNS.has(to) ? setDailyTick(content, taskText, true) : content;
   // No such destination column: leave the card where it is instead of dropping it.
   if (!content.split('\n').some(l => l.trim() === `## ${to}`)) return content;
   // Move the card's own line, so its date, pause note and block id travel with it.
   const { content: result, body } = removeTask(content, taskText, source);
   return body ? addTask(result, body, to) : content;
+}
+
+/** Ticks (or unticks) the Daily card with this title. Unchanged if there is none. */
+function setDailyTick(content: string, taskText: string, ticked: boolean): string {
+  const want = normalizeForMatch(taskText);
+  let column = '';
+  let done = false;
+  return content.split('\n').map(line => {
+    const header = line.trim().match(/^## (.+)$/);
+    if (header) { column = header[1].trim(); return line; }
+    if (done || !isDailyColumn(column)) return line;
+    const m = line.match(/^(\s*-\s*\[)([ xX])(\]\s+)(.+)$/);
+    if (!m || normalizeForMatch(m[4]) !== want) return line;
+    done = true;
+    return `${m[1]}${ticked ? 'x' : ' '}${m[3]}${m[4]}`;
+  }).join('\n');
+}
+
+/** The Daily card with this title and whether it is ticked, or null if no Daily card matches. */
+export function findDailyCard(vaultPath: string, taskText: string): { ticked: boolean } | null {
+  const file = boardFile(vaultPath);
+  if (!existsSync(file)) return null;
+  const want = normalizeForMatch(taskText);
+  let column = '';
+  for (const line of readFileSync(file, 'utf-8').split('\n')) {
+    const header = line.trim().match(/^## (.+)$/);
+    if (header) { column = header[1].trim(); continue; }
+    if (!isDailyColumn(column)) continue;
+    const m = line.match(/^\s*-\s*\[([ xX])\]\s+(.+)$/);
+    if (m && normalizeForMatch(m[2]) === want) return { ticked: m[1] !== ' ' };
+  }
+  return null;
+}
+
+/**
+ * Unticks every Daily card for the new day. Returns the titles that were ticked
+ * (done) and the ones left open (missed) before the reset. Writes only if a card
+ * was ticked; a missing board is a no-op.
+ */
+export async function resetDailyColumn(ops: VaultOps, vaultPath: string): Promise<{ done: string[]; missed: string[] }> {
+  const result = { done: [] as string[], missed: [] as string[] };
+  if (!existsSync(boardFile(vaultPath))) return result;
+  await processBoard(ops, vaultPath, content => {
+    result.done = [];
+    result.missed = [];
+    let column = '';
+    const out = content.split('\n').map(line => {
+      const header = line.trim().match(/^## (.+)$/);
+      if (header) { column = header[1].trim(); return line; }
+      if (!isDailyColumn(column)) return line;
+      const m = line.match(/^(\s*-\s*\[)([ xX])(\]\s+)(.+)$/);
+      if (!m) return line;
+      const title = normalizeForMatch(m[4]);
+      if (m[2] === ' ') { result.missed.push(title); return line; }
+      result.done.push(title);
+      return `${m[1]} ${m[3]}${m[4]}`;
+    });
+    return result.done.length ? out.join('\n') : content;
+  });
+  return result;
 }
 
 /** Strip wikilink brackets so cleaned text from the parser matches raw lines containing [[...]]. */

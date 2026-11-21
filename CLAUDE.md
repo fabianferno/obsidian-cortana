@@ -68,6 +68,10 @@ tag equal to the version (no "v"). `.github/workflows/release.yml` builds and at
   `fileManager`; `fsVaultOps` is the fs version for tests. Writers are async and take `ops`.
 - `src/vault/notes.ts` - note shape helpers: find by name or alias, `## Timeline` append, the
   `> [!question] Cortana` callout (old `Voice Agent` callouts still recognized). `src/journal/capture.ts` - the `note` action writer.
+- The `Daily` board column (any case, `isDailyColumn` in `writer.ts`) holds recurring habits.
+  Its cards never leave it: the done-sweep skips it, a move to Done/Archive ticks the card in
+  place, other moves are refused, and `Agent.resetDailyIfNewDay` unticks them once a day
+  (4am turn), storing yesterday's unticked cards for the context.
 - `src/vault/repair.ts` - the `repair_board` action: the engine sends the whole corrected board,
   `checkBoardRepair` refuses it if any card, id, column, frontmatter or settings would be lost or
   known damage (line-number prefixes, doubled checkboxes, double ids) is left. `/undoboard` reverts.

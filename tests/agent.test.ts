@@ -466,6 +466,17 @@ describe('executeVaultActions', () => {
     expect(out[0].text).toMatch(/couldn't find "Nope"/);
   });
 
+  it('ticks a Daily card for complete_task and refuses to move one out of Daily', async () => {
+    writeFileSync(join(vault, 'Kanban.md'), ['## To Do', '', '## Daily', '- [ ] Read ^d1', '- [x] Gym ^d2', '', '## Done', ''].join('\n'));
+    const out = await executeVaultActions(vault, fsVaultOps(vault), store, [
+      { type: 'complete_task', task: 'Read', from: 'Daily' },
+      { type: 'complete_task', task: 'Gym', from: 'Daily' },
+      { type: 'move_task', task: 'Gym', from: 'Daily', to: 'Doing' },
+    ]);
+    expect(out).toEqual([{ text: '"Gym" is a Daily card, so it stays in Daily. Ticking it marks it done for today.', ok: false }]);
+    expect(readFileSync(join(vault, 'Kanban.md'), 'utf-8')).toContain('## Daily\n- [x] Read ^d1\n- [x] Gym ^d2\n');
+  });
+
   it('records memory without asking', async () => {
     await executeVaultActions(vault, fsVaultOps(vault), store, [{ type: 'update_memory', observation: 'Prefers mornings' }]);
     expect(loadAgentConfig(join(vault, 'agent')).memory[0]).toMatch(/Prefers mornings/);
@@ -576,3 +587,40 @@ describe('matchCommands', () => {
     expect(matchCommands('/pause now')).toEqual([]);
   });
 });
+
+describe('Daily reset', () => {
+  it('unticks Daily cards once a new day starts at 4am, and tells the engine what was missed', async () => {
+    const vault = makeVault();
+    setVaultPath(vault);
+    setLayout({});
+    writeFileSync(join(vault, 'Kanban.md'), ['## Daily', '- [x] Read ^d1', '- [ ] Gym ^d2', '', '## Done', ''].join('\n'));
+    const store = new Store();
+    const engines: FakeEngine[] = [];
+    const agent = new Agent(vault, store, (sys) => { const e = new FakeEngine(sys, () => 'Ok.'); engines.push(e); return e; }, SETTINGS, () => undefined);
+    await agent.start();
+    onTestFinished(() => agent.stop());
+    const board = () => readFileSync(join(vault, 'Kanban.md'), 'utf-8');
+
+    // First run only records the day: today's ticks stand.
+    await agent.resetDailyIfNewDay(new Date(2026, 10, 20, 22, 0));
+    expect(board()).toContain('- [x] Read ^d1');
+    // Past midnight but before 4am is still the same day.
+    await agent.resetDailyIfNewDay(new Date(2026, 10, 21, 1, 30));
+    expect(board()).toContain('- [x] Read ^d1');
+    await agent.resetDailyIfNewDay(new Date(2026, 10, 21, 7, 0));
+    expect(board()).toContain('- [ ] Read ^d1');
+    expect(JSON.parse((await store.getSessionState('daily_missed'))!)).toEqual({ date: '2026-11-20', missed: ['Gym'] });
+
+    await store.setSessionState('daily_missed', JSON.stringify({ date: localDateOf(-1), missed: ['Gym'] }));
+    await store.setSessionState('daily_reset', localDateOf(0));
+    await agent.handleUserMessage('hi');
+    const prompt = engines.flatMap(e => e.prompts).join('\n');
+    expect(prompt).toContain('- Daily habits: done today: none; still open: Read, Gym; missed yesterday: Gym');
+  });
+});
+
+function localDateOf(offsetDays: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + offsetDays);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}

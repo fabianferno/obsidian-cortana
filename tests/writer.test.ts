@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import { mutateKanban, ensureCardIds, updateCardDeadlineById, updateCardDeadlineByTitle, deleteCardById, autoMoveCompletedToDone, clearColumns, countColumnCards, editCardText } from '../src/vault/writer.js';
+import { mutateKanban, ensureCardIds, updateCardDeadlineById, updateCardDeadlineByTitle, deleteCardById, autoMoveCompletedToDone, clearColumns, countColumnCards, editCardText, findDailyCard, resetDailyColumn } from '../src/vault/writer.js';
 import { parseInboxKanban } from '../src/vault/parser.js';
 import { fsVaultOps } from '../src/vault/ops.js';
 
@@ -395,5 +395,60 @@ describe('editCardText', () => {
     expect(await editCardText(ops, vault, 'Gy', 'Gym at 6')).toBe('not_found');
     expect(await editCardText(ops, vault, 'Gym session', '- [ ] ^ddd444')).toBe('empty');
     expect(read(vault)).toBe(body);
+  });
+});
+
+describe('the Daily column', () => {
+  const body = [
+    '## To Do',
+    '- [ ] Call Sham ^t1',
+    '',
+    '## Daily',
+    '- [x] Read for 30 minutes ^d1',
+    '- [ ] Learn [[Russian]] ^d2',
+    '',
+    '## Done',
+    '',
+    '## Archive',
+    '',
+  ].join('\n');
+  const read = (v: string) => readFileSync(inboxPath(v), 'utf-8');
+
+  it('leaves ticked Daily cards in place when sweeping completed cards to Done', async () => {
+    const vault = makeVault(body);
+    expect(await autoMoveCompletedToDone(fsVaultOps(vault), vault)).toEqual([]);
+    expect(read(vault)).toBe(body);
+  });
+
+  it('ticks a Daily card in place when it is moved to Done, and never moves it elsewhere', async () => {
+    const vault = makeVault(body);
+    const ops = fsVaultOps(vault);
+    expect(await mutateKanban(ops, vault, [{ type: 'move', task: 'Learn Russian', fromColumn: 'Daily', toColumn: 'Done' }])).toBe(true);
+    expect(read(vault)).toContain('## Daily\n- [x] Read for 30 minutes ^d1\n- [x] Learn [[Russian]] ^d2\n');
+    const before = read(vault);
+    expect(await mutateKanban(ops, vault, [{ type: 'move', task: 'Read for 30 minutes', fromColumn: 'Daily', toColumn: 'Doing' }])).toBe(false);
+    expect(await mutateKanban(ops, vault, [{ type: 'move', task: 'Read for 30 minutes', fromColumn: 'Daily', toColumn: 'To Do' }])).toBe(false);
+    expect(read(vault)).toBe(before);
+  });
+
+  it('still lets a card move into Daily', async () => {
+    const vault = makeVault(body);
+    expect(await mutateKanban(fsVaultOps(vault), vault, [{ type: 'move', task: 'Call Sham', fromColumn: 'To Do', toColumn: 'Daily' }])).toBe(true);
+    expect(parseInboxKanban(read(vault)).columns['Daily'].map(t => t.id)).toEqual(['d1', 'd2', 't1']);
+  });
+
+  it('finds Daily cards by title with their tick state', () => {
+    const vault = makeVault(body);
+    expect(findDailyCard(vault, 'Read for 30 minutes')).toEqual({ ticked: true });
+    expect(findDailyCard(vault, 'Learn Russian')).toEqual({ ticked: false });
+    expect(findDailyCard(vault, 'Call Sham')).toBeNull();
+  });
+
+  it('resetDailyColumn unticks every Daily card and reports done and missed', async () => {
+    const vault = makeVault(body);
+    const ops = fsVaultOps(vault);
+    expect(await resetDailyColumn(ops, vault)).toEqual({ done: ['Read for 30 minutes'], missed: ['Learn Russian'] });
+    expect(read(vault)).toBe(body.replace('- [x] Read for 30 minutes', '- [ ] Read for 30 minutes'));
+    expect(await resetDailyColumn(ops, vault)).toEqual({ done: [], missed: ['Read for 30 minutes', 'Learn Russian'] });
   });
 });

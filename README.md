@@ -73,7 +73,8 @@ with permission rules, not just instructions.
 - For the board features: a board note (`## Column` headings with `- [ ] card` lines). No
   board yet? Ask Cortana to make one, or run **Cortana: Create a board**. The
   [Kanban](https://github.com/mgmeyers/obsidian-kanban) plugin shows the note as a board, but
-  Cortana does not need it.
+  Cortana does not need it. A column named `Daily` is for habits: its cards stay put, done
+  means ticked, and Cortana unticks them every morning (the day turns at 4am).
 
 ## Install
 

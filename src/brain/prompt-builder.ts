@@ -8,7 +8,7 @@
 //     words or the scheduled check-in to write, sent with every turn.
 
 import type {
-  CheckinType, AgentConfig, ContextData, Signal, FocusSession, PendingConfigEdit,
+  CheckinType, AgentConfig, ContextData, Signal, FocusSession, PendingConfigEdit, VaultStateContext,
 } from '../config/types.js';
 import { scorePriority } from './priority.js';
 import { describeEdit } from '../config/editor.js';
@@ -164,6 +164,9 @@ ${capture ? `- Filing (the note action): when the user tells you something worth
   reschedule_task with an absolute date you work out from the current time. Not move_task.
 - When the user says they finished something that matches a card, emit complete_task for that
   exact card text. If more than one card matches, complete none and ask which.
+- The Daily column holds recurring habits. A Daily card never leaves Daily: complete_task ticks
+  it in place for today, and the plugin unticks them all each morning. Never move_task a Daily
+  card to any column, not even Doing to start a timer.
 - Never claim you moved, completed, noted or changed something unless the action that does it
   is in this same reply. If you cannot express a request as an action, say so plainly.
 - Config edits are gated: propose_config_edit only stages the change. Say what you want to
@@ -242,6 +245,14 @@ function formatCoordinates(c: { lat: number; lng: number }): string {
   return c.lat || c.lng ? ` (${c.lat}, ${c.lng})` : '';
 }
 
+function formatDaily(v: VaultStateContext): string {
+  if (!v.dailyTasks?.length) return '';
+  const ticked = v.dailyTasks.filter(t => t.completed).map(t => t.text);
+  const open = v.dailyTasks.filter(t => !t.completed).map(t => t.text);
+  const missed = v.dailyMissedYesterday?.length ? `; missed yesterday: ${v.dailyMissedYesterday.join(', ')}` : '';
+  return `\n- Daily habits: done today: ${ticked.join(', ') || 'none'}; still open: ${open.join(', ') || 'none'}${missed}`;
+}
+
 function boardMissingNote(boardPath: string): string {
   return `- NO BOARD: there is no board file at "${boardPath}", so you cannot see the user's tasks.
   Never say the board or a column is empty. Do not bring it up on your own. When the user wants to
@@ -283,7 +294,7 @@ ${v.boardMissing ? boardMissingNote(v.boardMissing) : `- Columns: ${opts.columns
 - Backlog: ${v.backlogCount} cards
 - To Do: ${v.todoCount} (${list(v.todoTasks)})${v.todoCount > 5 ? ' OVER SOFT LIMIT' : ''}
 - Doing: ${v.doingCount} (${list(v.doingTasks)})
-- Done today: ${v.doneToday.map(t => t.text).join(', ') || 'nothing yet'}
+- Done today: ${v.doneToday.map(t => t.text).join(', ') || 'nothing yet'}${formatDaily(v)}
 - Overdue: ${v.overdueTasks.map(t => `${t.text} (due ${t.dueDate})`).join(', ') || 'none'}
 - Due in 3 days: ${v.dueSoon.map(t => `${t.text} (due ${t.dueDate})`).join(', ') || 'none'}
 - Stuck in Doing 3+ days: ${v.stuckTasks.map(t => `${t.text} (${t.daysInCurrentColumn}d)`).join(', ') || 'none'}`}

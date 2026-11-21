@@ -7,7 +7,7 @@
 
 import type { PendingConfigEdit, VaultAction } from '../config/types.js';
 import type { Store } from '../store/store.js';
-import { mutateKanban, appendMemoryEntry, updateCardDeadlineByTitle, editCardText, createBoard } from '../vault/writer.js';
+import { mutateKanban, findDailyCard, appendMemoryEntry, updateCardDeadlineByTitle, editCardText, createBoard } from '../vault/writer.js';
 import { handlePersonMention } from '../journal/people.js';
 import { handleLiteratureMention } from '../journal/literature.js';
 import { captureToNote } from '../journal/capture.js';
@@ -67,12 +67,19 @@ export async function executeVaultActions(
     try {
       switch (action.type) {
         case 'move_task': {
+          const daily = findDailyCard(vaultPath, action.task);
+          if (daily && action.to !== 'Done' && action.to !== 'Archive') {
+            fail(`"${action.task}" is a Daily card, so it stays in Daily. Ticking it marks it done for today.`);
+            break;
+          }
+          if (daily?.ticked) break; // already done today
           const changed = await mutateKanban(ops, vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: action.to }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing moved.`);
           else board();
           break;
         }
         case 'complete_task': {
+          if (findDailyCard(vaultPath, action.task)?.ticked) break; // already done today
           const changed = await mutateKanban(ops, vaultPath, [{ type: 'move', task: action.task, fromColumn: action.from, toColumn: 'Done' }]);
           if (!changed) fail(`I couldn't find "${action.task}" on the board, so nothing was marked done.`);
           else board();

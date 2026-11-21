@@ -34,7 +34,7 @@ import { FocusTracker, extractCardId, locateRemovedCard } from '../focus/tracker
 import { checkGuard } from '../focus/guard.js';
 import { parseBareEstimate, parseTimeEstimate } from '../focus/estimator.js';
 import { parseInboxKanban } from '../vault/parser.js';
-import { autoMoveCompletedToDone, clearColumns, countColumnCards, ensureCardIds, mutateKanban } from '../vault/writer.js';
+import { autoMoveCompletedToDone, clearColumns, countColumnCards, ensureCardIds, mutateKanban, resetDailyColumn } from '../vault/writer.js';
 import { Graduation, countWaiting, loadGraduationState, saveGraduationState, type GraduationResult } from './graduation.js';
 import { fsVaultOps, type VaultOps } from '../vault/ops.js';
 import { createLogger } from '../utils/logger.js';
@@ -107,6 +107,7 @@ export class Agent {
   private queue: Promise<unknown> = Promise.resolve();
   private stopCheckpoints?: () => void;
   private kanbanTimer?: number;
+  private dailyReset?: Promise<void>;
   private watchdogTimer?: number;
   private graduationTimer?: number;
   private graduationKickoff?: number;
@@ -585,6 +586,7 @@ export class Agent {
   // --- context ---
 
   private async getContext(): Promise<ContextData> {
+    await this.resetDailyIfNewDay();
     try {
       const moved = await autoMoveCompletedToDone(this.vaultOps, this.vaultPath);
       if (moved.length) logger.info(`Moved completed cards to Done: ${moved.join(', ')}`);
@@ -693,11 +695,37 @@ export class Agent {
     return existsSync(file) ? parseInboxKanban(readFileSync(file, 'utf-8')) : null;
   }
 
+  /**
+   * Unticks the Daily column once per day. The day turns at 4am, so a habit ticked
+   * after midnight still counts for the evening it belongs to. The first run only
+   * records the day, so today's ticks stand. Public for tests.
+   */
+  resetDailyIfNewDay(now = new Date()): Promise<void> {
+    this.dailyReset ??= (async () => {
+      try {
+        const day = localDate(new Date(now.getTime() - 4 * 3600 * 1000));
+        const last = await this.store.getSessionState('daily_reset');
+        if (last === day) return;
+        await this.store.setSessionState('daily_reset', day);
+        if (!last) return;
+        const r = await resetDailyColumn(this.vaultOps, this.vaultPath);
+        await this.store.setSessionState('daily_missed', JSON.stringify({ date: last, missed: r.missed }));
+        if (r.done.length) logger.info(`New day: unticked Daily cards ${r.done.join(', ')}`);
+      } catch (err) {
+        logger.error('Daily reset failed', err);
+      } finally {
+        this.dailyReset = undefined;
+      }
+    })();
+    return this.dailyReset;
+  }
+
   private startKanbanPoll(): void {
     const board = this.readBoard();
     const initial = (board?.columns['Doing'] || []).map(t => t.rawLine || t.text);
     void this.store.setSessionState('kanban_doing_snapshot', JSON.stringify(initial));
     this.kanbanTimer = window.setInterval(() => {
+      void this.resetDailyIfNewDay();
       void this.pollKanban();
       void this.checkDrift();
     }, 2 * 60 * 1000);
